@@ -264,14 +264,6 @@ class LiquidityPool(SubscriptionMixin, PoolHelper):
             logger.info(f"• Token 0: {self.token0} - Reserves: {self.reserves_token0}")
             logger.info(f"• Token 1: {self.token1} - Reserves: {self.reserves_token1}")
 
-    def __eq__(self, other) -> bool:
-        if issubclass(type(other), PoolHelper):
-            return self.address == other.address
-        elif isinstance(other, str):
-            return self.address.lower() == other.lower()
-        else:
-            raise NotImplementedError
-
     def __getstate__(self) -> dict:
         # Remove objects that cannot be pickled and are unnecessary to perform
         # the calculation
@@ -287,18 +279,12 @@ class LiquidityPool(SubscriptionMixin, PoolHelper):
                 if attr_name not in dropped_attributes
             }
 
-    def __hash__(self):
-        return hash(self.address)
-
     def __repr__(self):  # pragma: no cover
         return f"LiquidityPool(address={self.address}, token0={self.token0}, token1={self.token1})"
 
     def __setstate__(self, state: Dict):
         for attr_name, attr_value in state.items():
             setattr(self, attr_name, attr_value)
-
-    def __str__(self):
-        return self.name
 
     @property
     def _w3_contract(self) -> Contract:
