@@ -11,6 +11,7 @@ from .arbitrage import (
 )
 from .chainlink import ChainlinkPriceContract
 from .config import get_web3, set_web3
+from .curve.curve_stableswap_liquidity_pool import CurveStableswapPool
 from .erc20_token import Erc20Token
 from .fork import AnvilFork
 from .functions import next_base_fee
@@ -33,4 +34,3 @@ from .uniswap.v3_dataclasses import (
 from .uniswap.v3_liquidity_pool import V3LiquidityPool
 from .uniswap.v3_snapshot import UniswapV3LiquiditySnapshot
 from .uniswap.v3_tick_lens import TickLens
-from .curve.curve_stableswap_liquidity_pool import CurveStableswapPool
