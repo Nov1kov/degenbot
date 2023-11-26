@@ -96,8 +96,10 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         _w3 = config.get_web3()
         _w3_contract = self._w3_contract
 
-        if factory_address:
+        if factory_address:  # pragma: no cover
             self.factory = to_checksum_address(factory_address)
+        else:
+            self.factory = to_checksum_address(_w3_contract.functions.factory().call())
 
         self.fee: int = _w3_contract.functions.fee().call()
 
@@ -154,7 +156,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         self.initial_A_time = _w3_contract.functions.initial_A_time().call()
         self.future_A_time = _w3_contract.functions.future_A_time().call()
 
-        if name is not None:
+        if name is not None:  # pragma: no cover
             self.name = name
         else:
             fee_string = f"{100*self.fee/self.FEE_DENOMINATOR:.2f}"

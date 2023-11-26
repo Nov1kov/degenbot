@@ -2,6 +2,7 @@ import pytest
 from degenbot.curve.curve_stableswap_liquidity_pool import CurveStableswapPool
 import degenbot
 from web3 import Web3
+from degenbot.exceptions import ZeroSwapError
 
 
 @pytest.fixture(scope="function")
@@ -12,7 +13,17 @@ def frxeth_weth_curve_stableswap_pool(local_web3_ethereum_archive: Web3) -> Curv
 
 def test_create_pool(local_web3_ethereum_full: Web3):
     degenbot.set_web3(local_web3_ethereum_full)
-    CurveStableswapPool("0x9c3B46C0Ceb5B9e304FCd6D88Fc50f7DD24B31Bc")
+    lp = CurveStableswapPool("0x9c3B46C0Ceb5B9e304FCd6D88Fc50f7DD24B31Bc")
+
+    # Test providing tokens
+    CurveStableswapPool(address="0x9c3B46C0Ceb5B9e304FCd6D88Fc50f7DD24B31Bc", tokens=lp.tokens)
+
+    # Test with the wrong tokens
+    with pytest.raises(ValueError, match=f"Token {lp.tokens[1].address} not found in tokens."):
+        CurveStableswapPool(
+            address="0x9c3B46C0Ceb5B9e304FCd6D88Fc50f7DD24B31Bc",
+            tokens=[lp.tokens[0]],
+        )
 
 
 def test_calculations(frxeth_weth_curve_stableswap_pool: CurveStableswapPool):
@@ -55,3 +66,17 @@ def test_calculations(frxeth_weth_curve_stableswap_pool: CurveStableswapPool):
         ).call()
 
         assert calc_amount == contract_amount
+
+    with pytest.raises(ZeroSwapError):
+        calc_amount = lp.calculate_tokens_out_from_tokens_in(
+            token_in=token_in,
+            token_out=token_out,
+            token_in_quantity=0,
+        )
+
+    with pytest.raises(ZeroSwapError):
+        calc_amount = lp.calculate_tokens_in_from_tokens_out(
+            token_in=token_in,
+            token_out=token_out,
+            token_out_quantity=0,
+        )
