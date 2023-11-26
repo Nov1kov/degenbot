@@ -34,5 +34,3 @@ from .uniswap.v3_liquidity_pool import V3LiquidityPool
 from .uniswap.v3_snapshot import UniswapV3LiquiditySnapshot
 from .uniswap.v3_tick_lens import TickLens
 from .curve.curve_stableswap_liquidity_pool import CurveStableswapPool
-
-print("HI!")
