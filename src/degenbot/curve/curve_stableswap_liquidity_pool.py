@@ -157,7 +157,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         if name is not None:
             self.name = name
         else:
-            fee_string = f"{100*self.fee.numerator/self.fee.denominator:.2f}"
+            fee_string = f"{100*self.fee/self.FEE_DENOMINATOR:.2f}"
             token_string = "-".join([token.symbol for token in self.tokens])
             self.name = f"{token_string} (CurveStable, {fee_string}%)"
 
@@ -186,7 +186,8 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 logger.info(f"• Token 0: {token} - Reserves: {balance}")
 
     def __repr__(self):  # pragma: no cover
-        return f"CurveStableswapPool(address={self.address}, token0={self.token0}, token1={self.token1}, fee={100*self.fee.numerator/self.fee.denominator:.2f}%, A={self.a_coefficient})"
+        token_string = "-".join([token.symbol for token in self.tokens])
+        return f"CurveStableswapPool(address={self.address}, tokens={token_string}, fee={100*self.fee/self.FEE_DENOMINATOR:.2f}%, A={self.a_coefficient})"
 
     @property
     def _w3_contract(self) -> Contract:
