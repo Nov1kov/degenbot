@@ -382,42 +382,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
         raise EVMRevertError("get_D did not converge!")
 
-    def _exchange(
-        self,
-        i: int,
-        j: int,
-        _dx: int,
-        _min_dy: int,
-        timestamp: Optional[int] = None,
-    ) -> int:
-        """
-        @notice Perform an exchange between two coins
-        @dev Index values can be found via the `coins` public getter method
-        @param i Index value for the coin to send
-        @param j Index value of the coin to recieve
-        @param _dx Amount of `i` being exchanged
-        @param _min_dy Minimum amount of `j` to receive
-        @return Actual amount of `j` received
-        """
-
-        rates: Tuple[int] = self.rate_multipliers
-        xp: List[int] = self._xp_mem(rates, self.balances)
-
-        x: int = xp[i] + _dx * rates[i] // self.PRECISION
-
-        amp: int = self._A(timestamp)
-        D: int = self.get_D(xp, amp)
-        y: int = self.get_y(i, j, x, xp, amp, D)
-
-        dy: int = xp[j] - y - 1  # -1 just in case there were some rounding errors
-        dy_fee: int = dy * self.fee // self.FEE_DENOMINATOR
-
-        # Convert all to real units
-        dy = (dy - dy_fee) * self.PRECISION // rates[j]
-        assert dy >= _min_dy, "Exchange resulted in fewer coins than expected"
-
-        return dy
-
     def calculate_tokens_out_from_tokens_in(
         self,
         token_in: Erc20Token,
