@@ -25,8 +25,8 @@ from ..exceptions import (
 )
 from ..logging import logger
 from ..manager import AllPools, Erc20TokenHelperManager
+from ..subscription_mixins import Subscriber, SubscriptionMixin
 from .abi import UNISWAP_V3_POOL_ABI
-from .mixins import Subscriber, SubscriptionMixin
 from .v3_dataclasses import (
     UniswapV3BitmapAtWord,
     UniswapV3LiquidityAtTick,

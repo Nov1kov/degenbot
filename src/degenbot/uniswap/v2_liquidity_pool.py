@@ -20,8 +20,9 @@ from ..exceptions import (
 )
 from ..logging import logger
 from ..manager import AllPools, Erc20TokenHelperManager
+from ..subscription_mixins import Subscriber, SubscriptionMixin
 from .abi import CAMELOT_POOL_ABI, UNISWAP_V2_POOL_ABI
-from .mixins import CamelotStablePoolMixin, Subscriber, SubscriptionMixin
+from .mixins import CamelotStablePoolMixin
 from .v2_dataclasses import UniswapV2PoolSimulationResult, UniswapV2PoolState
 from .v2_functions import generate_v2_pool_address
 
