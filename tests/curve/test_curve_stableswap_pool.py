@@ -4,24 +4,26 @@ import degenbot
 from web3 import Web3
 from degenbot.exceptions import ZeroSwapError
 
+FRXETH_WETH_CURVE_POOL_ADDRESS = "0x9c3B46C0Ceb5B9e304FCd6D88Fc50f7DD24B31Bc"
+
 
 @pytest.fixture(scope="function")
 def frxeth_weth_curve_stableswap_pool(local_web3_ethereum_archive: Web3) -> CurveStableswapPool:
     degenbot.set_web3(local_web3_ethereum_archive)
-    return CurveStableswapPool("0x9c3B46C0Ceb5B9e304FCd6D88Fc50f7DD24B31Bc")
+    return CurveStableswapPool(FRXETH_WETH_CURVE_POOL_ADDRESS)
 
 
 def test_create_pool(local_web3_ethereum_full: Web3):
     degenbot.set_web3(local_web3_ethereum_full)
-    lp = CurveStableswapPool("0x9c3B46C0Ceb5B9e304FCd6D88Fc50f7DD24B31Bc")
+    lp = CurveStableswapPool(FRXETH_WETH_CURVE_POOL_ADDRESS)
 
     # Test providing tokens
-    CurveStableswapPool(address="0x9c3B46C0Ceb5B9e304FCd6D88Fc50f7DD24B31Bc", tokens=lp.tokens)
+    CurveStableswapPool(address=FRXETH_WETH_CURVE_POOL_ADDRESS, tokens=lp.tokens)
 
     # Test with the wrong tokens
     with pytest.raises(ValueError, match=f"Token {lp.tokens[1].address} not found in tokens."):
         CurveStableswapPool(
-            address="0x9c3B46C0Ceb5B9e304FCd6D88Fc50f7DD24B31Bc",
+            address=FRXETH_WETH_CURVE_POOL_ADDRESS,
             tokens=[lp.tokens[0]],
         )
 
