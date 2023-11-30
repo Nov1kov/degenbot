@@ -86,6 +86,10 @@ def test_3pool(local_web3_ethereum_full: Web3):
             assert calc_amount == contract_amount
 
 
+def _test_stuff():
+    raise
+
+
 def test_factory_stableswap_pools(local_web3_ethereum_full: Web3):
     degenbot.set_web3(local_web3_ethereum_full)
 
