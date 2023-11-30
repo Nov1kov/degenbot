@@ -312,3 +312,14 @@ class Erc20Token(TokenHelper):
     def update_price(self):
         self._price_oracle.update_price()
         self.price = self._price_oracle.price
+
+
+class EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE(Erc20Token):
+    """
+    Ayyyyyy lmao thanks Curve
+    """
+
+    def __init__(
+        self,
+    ):
+        self.address = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"

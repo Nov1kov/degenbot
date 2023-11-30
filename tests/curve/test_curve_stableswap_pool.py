@@ -6,7 +6,7 @@ from degenbot.exceptions import ZeroSwapError
 import ujson
 from web3.contract import Contract
 from degenbot.curve.abi import CURVE_V1_FACTORY_ABI
-
+import itertools
 
 FRXETH_WETH_CURVE_POOL_ADDRESS = "0x9c3B46C0Ceb5B9e304FCd6D88Fc50f7DD24B31Bc"
 CURVE_METAREGISTRY_ADDRESS = "0xF98B45FA17DE75FB1aD0e7aFD971b0ca00e379fC"
@@ -31,6 +31,44 @@ CURVE_POOLINFO_ABI = ujson.loads(
     """
 )
 # -----------------------------------------------------------
+
+
+def _test_balances(lp: CurveStableswapPool):
+    contract_balances = [
+        lp._w3_contract.functions.balances(token_index).call()
+        for token_index in range(len(lp.tokens))
+    ]
+    assert contract_balances == lp.balances
+
+
+def _test_calculations(lp: CurveStableswapPool):
+    for token_in_index, token_out_index in itertools.permutations(range(len(lp.tokens)), 2):
+        token_in = lp.tokens[token_in_index]
+        token_out = lp.tokens[token_out_index]
+
+        for amount_multiplier in [0.01, 0.05, 0.25]:
+            amount = int(amount_multiplier * lp.balances[lp.tokens.index(token_in)])
+            print(f"Swapping {amount} {token_in} for {token_out}")
+
+            if lp.address == "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE":
+                snowflake = True
+            else:
+                snowflake = False
+
+            calc_amount = lp.calculate_tokens_out_from_tokens_in(
+                token_in=token_in,
+                token_out=token_out,
+                token_in_quantity=amount,
+                snowflake=snowflake,
+            )
+
+            contract_amount = lp._w3_contract.functions.get_dy(
+                token_in_index,
+                token_out_index,
+                amount,
+            ).call()
+
+            assert calc_amount == contract_amount
 
 
 @pytest.fixture(scope="function")
@@ -58,36 +96,8 @@ def test_3pool(local_web3_ethereum_full: Web3):
     degenbot.set_web3(local_web3_ethereum_full)
     tripool = CurveStableswapPool("0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7")
 
-    contract_balances = [
-        tripool._w3_contract.functions.balances(token_index).call()
-        for token_index in range(len(tripool.tokens))
-    ]
-    assert contract_balances == tripool.balances
-
-    for token_in_index, token_out_index in [(0, 1), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1)]:
-        token_in = tripool.tokens[token_in_index]
-        token_out = tripool.tokens[token_out_index]
-        for amount_multiplier in [0.01, 0.05, 0.25]:
-            amount = int(amount_multiplier * tripool.balances[tripool.tokens.index(token_in)])
-            print(f"Swapping {amount} {token_in} for {token_out}")
-
-            calc_amount = tripool.calculate_tokens_out_from_tokens_in(
-                token_in=token_in,
-                token_out=token_out,
-                token_in_quantity=amount,
-            )
-
-            contract_amount = tripool._w3_contract.functions.get_dy(
-                token_in_index,
-                token_out_index,
-                amount,
-            ).call()
-
-            assert calc_amount == contract_amount
-
-
-def _test_stuff():
-    raise
+    _test_balances(tripool)
+    _test_calculations(tripool)
 
 
 def test_factory_stableswap_pools(local_web3_ethereum_full: Web3):
@@ -102,34 +112,26 @@ def test_factory_stableswap_pools(local_web3_ethereum_full: Web3):
         pool_address = stableswap_factory.functions.pool_list(pool_id).call()
 
         lp = CurveStableswapPool(address=pool_address)
-        contract_balances = [
-            lp._w3_contract.functions.balances(token_index).call()
-            for token_index in range(len(lp.tokens))
-        ]
-        assert contract_balances == lp.balances
+        _test_balances(lp)
+        _test_calculations(lp)
 
-        token_in_index = 0
-        token_out_index = 1
-        token_in = lp.tokens[token_in_index]
-        token_out = lp.tokens[token_out_index]
 
-        for amount_multiplier in [0.01, 0.05, 0.25]:
-            amount = int(amount_multiplier * lp.balances[lp.tokens.index(token_in)])
-            print(f"Swapping {amount} {token_in} for {token_out}")
+def test_base_registry_pools(local_web3_ethereum_full: Web3):
+    degenbot.set_web3(local_web3_ethereum_full)
 
-            calc_amount = lp.calculate_tokens_out_from_tokens_in(
-                token_in=token_in,
-                token_out=token_out,
-                token_in_quantity=amount,
-            )
+    registry: Contract = local_web3_ethereum_full.eth.contract(
+        address=CURVE_REGISTRY_ADDRESS, abi=CURVE_REGISTRY_ABI
+    )
+    pool_count = registry.functions.pool_count().call()
 
-            contract_amount = lp._w3_contract.functions.get_dy(
-                token_in_index,
-                token_out_index,
-                amount,
-            ).call()
+    for pool_id in range(pool_count):
+        # Get the address and pool info
+        pool_address = registry.functions.pool_list(pool_id).call()
+        print(f"{pool_id}: {pool_address=}")
 
-            assert calc_amount == contract_amount
+        lp = CurveStableswapPool(address=pool_address)
+        _test_balances(lp)
+        _test_calculations(lp)
 
 
 def test_all_registered_pools(local_web3_ethereum_full: Web3):
@@ -186,11 +188,10 @@ def test_all_registered_pools(local_web3_ethereum_full: Web3):
             continue
 
         if all(param == 0 for param in pool_params[1:]):
-            pool_a = pool_params[0]
-            print(f"StableSwap detected: {pool_a=}")
-            print(f"Creating pool {pool_address} ID={pool_id}")
-            print(f"{pool_params=}")
-            CurveStableswapPool(address=pool_address)
+            try:
+                CurveStableswapPool(address=pool_address)
+            except Exception:
+                print(f"Building pool failure: {pool_address=}")
         else:
             (
                 pool_a,

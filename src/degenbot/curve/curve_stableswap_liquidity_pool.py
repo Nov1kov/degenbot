@@ -138,6 +138,10 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             for token_address in _w3_metaregistry_contract.functions.get_coins(self.address).call()
             if token_address != ZERO_ADDRESS
         ]
+        if "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" in token_addresses:
+            print(
+                f"ETH placeholder found at token position {token_addresses.index('0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE')}"
+            )
 
         if tokens is not None:
             # Index the tokens by address
@@ -151,6 +155,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         else:
             _token_manager = Erc20TokenHelperManager(chain_id)
+
             self.tokens = tuple(
                 [
                     _token_manager.get_erc20token(
@@ -163,9 +168,20 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         self.balances: List[int]
         if not empty:
-            self.balances = _w3_metaregistry_contract.functions.get_balances(self.address).call()[
-                0 : len(self.tokens)
+            for token_index in range(len(self.tokens)):
+                print(
+                    f"Balance for token {token_index} = {_w3_contract.functions.balances(token_index).call()}"
+                )
+            self.balances = [
+                _w3_contract.functions.balances(token_index).call()
+                for token_index in range(len(self.tokens))
             ]
+            print(f"{self.balances=}")
+
+            metaregistry_balances = _w3_metaregistry_contract.functions.get_balances(
+                self.address
+            ).call()[0 : len(self.tokens)]
+            print(f"{metaregistry_balances=}")
 
         # For 3pool:
         # RATES = [
@@ -214,26 +230,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             abi=self.abi,
         )
 
-    # def _get_dx(self, i: int, j: int, dy: int) -> int:
-    #     """
-    #     @notice Calculate the current input dx given output dy
-    #     @dev Index values can be found via the `coins` public getter method
-    #     @param i Index value for the coin to send
-    #     @param j Index value of the coin to recieve
-    #     @param dy Amount of `j` being received after exchange
-    #     @return Amount of `i` predicted
-    #     """
-
-    #     rates: Tuple[int] = self.rate_multipliers
-    #     xp: List[int] = self._xp_mem(rates, self.balances)
-
-    #     y: int = xp[j] - (dy * rates[j] // self.PRECISION + 1) * self.FEE_DENOMINATOR // (
-    #         self.FEE_DENOMINATOR - self.fee
-    #     )
-    #     x: int = self.get_y(j, i, y, xp, 0, 0)
-    #     return (x - xp[i]) * self.PRECISION // rates[i]
-
-    def _get_dy(self, i: int, j: int, dx: int) -> int:
+    def _get_dy(self, i: int, j: int, dx: int, snowflake: bool = False) -> int:
         """
         @notice Calculate the current output dy given input dx
         @dev Index values can be found via the `coins` public getter method
@@ -242,6 +239,18 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         @param dx Amount of `i` being exchanged
         @return Amount of `j` predicted
         """
+
+        # snowflake mode added for dynamic fee pools:
+        # 0xDeBF20617708857ebe4F679508E7b7863a8A8EeE
+
+        def _dynamic_fee(xpi: int, xpj: int, _fee: int, _feemul: int) -> int:
+            if _feemul <= self.FEE_DENOMINATOR:
+                return _fee
+            else:
+                xps2 = (xpi + xpj) ** 2
+                return (_feemul * _fee) // (
+                    (_feemul - self.FEE_DENOMINATOR) * 4 * xpi * xpj // xps2 + self.FEE_DENOMINATOR
+                )
 
         # ref: https://github.com/curveresearch/notes/blob/main/stableswap.pdf
 
@@ -252,7 +261,48 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         x = xp[i] + (dx * rates[i] // self.PRECISION)
         y = self._get_y(i, j, x, xp)
         dy = (xp[j] - y - 1) * self.PRECISION // rates[j]
-        _fee = self.fee * dy // self.FEE_DENOMINATOR
+        print(f"{snowflake=}")
+        if snowflake:
+            dy = (xp[j] - y) * self.PRECISION // rates[j]
+            import ujson
+
+            offpeg_fee_multiplier = (
+                self._w3_contract.w3.eth.contract(
+                    address=self.address,
+                    abi=ujson.loads(
+                        """
+                [{"name":"TokenExchange","inputs":[{"type":"address","name":"buyer","indexed":true},{"type":"int128","name":"sold_id","indexed":false},{"type":"uint256","name":"tokens_sold","indexed":false},{"type":"int128","name":"bought_id","indexed":false},{"type":"uint256","name":"tokens_bought","indexed":false}],"anonymous":false,"type":"event"},{"name":"TokenExchangeUnderlying","inputs":[{"type":"address","name":"buyer","indexed":true},{"type":"int128","name":"sold_id","indexed":false},{"type":"uint256","name":"tokens_sold","indexed":false},{"type":"int128","name":"bought_id","indexed":false},{"type":"uint256","name":"tokens_bought","indexed":false}],"anonymous":false,"type":"event"},{"name":"AddLiquidity","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256[3]","name":"token_amounts","indexed":false},{"type":"uint256[3]","name":"fees","indexed":false},{"type":"uint256","name":"invariant","indexed":false},{"type":"uint256","name":"token_supply","indexed":false}],"anonymous":false,"type":"event"},{"name":"RemoveLiquidity","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256[3]","name":"token_amounts","indexed":false},{"type":"uint256[3]","name":"fees","indexed":false},{"type":"uint256","name":"token_supply","indexed":false}],"anonymous":false,"type":"event"},{"name":"RemoveLiquidityOne","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256","name":"token_amount","indexed":false},{"type":"uint256","name":"coin_amount","indexed":false}],"anonymous":false,"type":"event"},{"name":"RemoveLiquidityImbalance","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256[3]","name":"token_amounts","indexed":false},{"type":"uint256[3]","name":"fees","indexed":false},{"type":"uint256","name":"invariant","indexed":false},{"type":"uint256","name":"token_supply","indexed":false}],"anonymous":false,"type":"event"},{"name":"CommitNewAdmin","inputs":[{"type":"uint256","name":"deadline","indexed":true},{"type":"address","name":"admin","indexed":true}],"anonymous":false,"type":"event"},{"name":"NewAdmin","inputs":[{"type":"address","name":"admin","indexed":true}],"anonymous":false,"type":"event"},{"name":"CommitNewFee","inputs":[{"type":"uint256","name":"deadline","indexed":true},{"type":"uint256","name":"fee","indexed":false},{"type":"uint256","name":"admin_fee","indexed":false},{"type":"uint256","name":"offpeg_fee_multiplier","indexed":false}],"anonymous":false,"type":"event"},{"name":"NewFee","inputs":[{"type":"uint256","name":"fee","indexed":false},{"type":"uint256","name":"admin_fee","indexed":false},{"type":"uint256","name":"offpeg_fee_multiplier","indexed":false}],"anonymous":false,"type":"event"},{"name":"RampA","inputs":[{"type":"uint256","name":"old_A","indexed":false},{"type":"uint256","name":"new_A","indexed":false},{"type":"uint256","name":"initial_time","indexed":false},{"type":"uint256","name":"future_time","indexed":false}],"anonymous":false,"type":"event"},{"name":"StopRampA","inputs":[{"type":"uint256","name":"A","indexed":false},{"type":"uint256","name":"t","indexed":false}],"anonymous":false,"type":"event"},{"outputs":[],"inputs":[{"type":"address[3]","name":"_coins"},{"type":"address[3]","name":"_underlying_coins"},{"type":"address","name":"_pool_token"},{"type":"address","name":"_aave_lending_pool"},{"type":"uint256","name":"_A"},{"type":"uint256","name":"_fee"},{"type":"uint256","name":"_admin_fee"},{"type":"uint256","name":"_offpeg_fee_multiplier"}],"stateMutability":"nonpayable","type":"constructor"},{"name":"A","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":5199},{"name":"A_precise","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":5161},{"name":"dynamic_fee","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"}],"stateMutability":"view","type":"function","gas":10278},{"name":"balances","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"i"}],"stateMutability":"view","type":"function","gas":2731},{"name":"get_virtual_price","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2680120},{"name":"calc_token_amount","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"bool","name":"is_deposit"}],"stateMutability":"view","type":"function","gas":5346581},{"name":"add_liquidity","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_min_mint_amount"}],"stateMutability":"nonpayable","type":"function"},{"name":"add_liquidity","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_min_mint_amount"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"get_dy","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"}],"stateMutability":"view","type":"function","gas":6239547},{"name":"get_dy_underlying","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"}],"stateMutability":"view","type":"function","gas":6239577},{"name":"exchange","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"},{"type":"uint256","name":"min_dy"}],"stateMutability":"nonpayable","type":"function","gas":6361682},{"name":"exchange_underlying","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"},{"type":"uint256","name":"min_dy"}],"stateMutability":"nonpayable","type":"function","gas":6369753},{"name":"remove_liquidity","outputs":[{"type":"uint256[3]","name":""}],"inputs":[{"type":"uint256","name":"_amount"},{"type":"uint256[3]","name":"_min_amounts"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity","outputs":[{"type":"uint256[3]","name":""}],"inputs":[{"type":"uint256","name":"_amount"},{"type":"uint256[3]","name":"_min_amounts"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity_imbalance","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_max_burn_amount"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity_imbalance","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_max_burn_amount"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"calc_withdraw_one_coin","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"_token_amount"},{"type":"int128","name":"i"}],"stateMutability":"view","type":"function","gas":4449067},{"name":"remove_liquidity_one_coin","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"_token_amount"},{"type":"int128","name":"i"},{"type":"uint256","name":"_min_amount"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity_one_coin","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"_token_amount"},{"type":"int128","name":"i"},{"type":"uint256","name":"_min_amount"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"ramp_A","outputs":[],"inputs":[{"type":"uint256","name":"_future_A"},{"type":"uint256","name":"_future_time"}],"stateMutability":"nonpayable","type":"function","gas":151954},{"name":"stop_ramp_A","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":148715},{"name":"commit_new_fee","outputs":[],"inputs":[{"type":"uint256","name":"new_fee"},{"type":"uint256","name":"new_admin_fee"},{"type":"uint256","name":"new_offpeg_fee_multiplier"}],"stateMutability":"nonpayable","type":"function","gas":146482},{"name":"apply_new_fee","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":133744},{"name":"revert_new_parameters","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":21985},{"name":"commit_transfer_ownership","outputs":[],"inputs":[{"type":"address","name":"_owner"}],"stateMutability":"nonpayable","type":"function","gas":74723},{"name":"apply_transfer_ownership","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":60800},{"name":"revert_transfer_ownership","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":22075},{"name":"withdraw_admin_fees","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":71651},{"name":"donate_admin_fees","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":62276},{"name":"kill_me","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":38058},{"name":"unkill_me","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":22195},{"name":"set_aave_referral","outputs":[],"inputs":[{"type":"uint256","name":"referral_code"}],"stateMutability":"nonpayable","type":"function","gas":37325},{"name":"coins","outputs":[{"type":"address","name":""}],"inputs":[{"type":"uint256","name":"arg0"}],"stateMutability":"view","type":"function","gas":2310},{"name":"underlying_coins","outputs":[{"type":"address","name":""}],"inputs":[{"type":"uint256","name":"arg0"}],"stateMutability":"view","type":"function","gas":2340},{"name":"admin_balances","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"arg0"}],"stateMutability":"view","type":"function","gas":2370},{"name":"fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2291},{"name":"offpeg_fee_multiplier","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2321},{"name":"admin_fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2351},{"name":"owner","outputs":[{"type":"address","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2381},{"name":"lp_token","outputs":[{"type":"address","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2411},{"name":"initial_A","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2441},{"name":"future_A","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2471},{"name":"initial_A_time","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2501},{"name":"future_A_time","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2531},{"name":"admin_actions_deadline","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2561},{"name":"transfer_ownership_deadline","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2591},{"name":"future_fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2621},{"name":"future_admin_fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2651},{"name":"future_offpeg_fee_multiplier","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2681},{"name":"future_owner","outputs":[{"type":"address","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2711}]
+                """
+                    ),
+                )
+                .functions.offpeg_fee_multiplier()
+                .call()
+            )
+            print(f"{offpeg_fee_multiplier=}")
+            dyn_fee = _dynamic_fee(
+                (xp[i] + x) // 2, (xp[j] + y) // 2, self.fee, offpeg_fee_multiplier
+            )
+            _fee = dyn_fee * dy // self.FEE_DENOMINATOR
+            # compare calculated dynamic fee to contract fee
+
+            contract_fee = (
+                self._w3_contract.w3.eth.contract(
+                    address=self.address,
+                    abi=ujson.loads(
+                        """
+                [{"name":"TokenExchange","inputs":[{"type":"address","name":"buyer","indexed":true},{"type":"int128","name":"sold_id","indexed":false},{"type":"uint256","name":"tokens_sold","indexed":false},{"type":"int128","name":"bought_id","indexed":false},{"type":"uint256","name":"tokens_bought","indexed":false}],"anonymous":false,"type":"event"},{"name":"TokenExchangeUnderlying","inputs":[{"type":"address","name":"buyer","indexed":true},{"type":"int128","name":"sold_id","indexed":false},{"type":"uint256","name":"tokens_sold","indexed":false},{"type":"int128","name":"bought_id","indexed":false},{"type":"uint256","name":"tokens_bought","indexed":false}],"anonymous":false,"type":"event"},{"name":"AddLiquidity","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256[3]","name":"token_amounts","indexed":false},{"type":"uint256[3]","name":"fees","indexed":false},{"type":"uint256","name":"invariant","indexed":false},{"type":"uint256","name":"token_supply","indexed":false}],"anonymous":false,"type":"event"},{"name":"RemoveLiquidity","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256[3]","name":"token_amounts","indexed":false},{"type":"uint256[3]","name":"fees","indexed":false},{"type":"uint256","name":"token_supply","indexed":false}],"anonymous":false,"type":"event"},{"name":"RemoveLiquidityOne","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256","name":"token_amount","indexed":false},{"type":"uint256","name":"coin_amount","indexed":false}],"anonymous":false,"type":"event"},{"name":"RemoveLiquidityImbalance","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256[3]","name":"token_amounts","indexed":false},{"type":"uint256[3]","name":"fees","indexed":false},{"type":"uint256","name":"invariant","indexed":false},{"type":"uint256","name":"token_supply","indexed":false}],"anonymous":false,"type":"event"},{"name":"CommitNewAdmin","inputs":[{"type":"uint256","name":"deadline","indexed":true},{"type":"address","name":"admin","indexed":true}],"anonymous":false,"type":"event"},{"name":"NewAdmin","inputs":[{"type":"address","name":"admin","indexed":true}],"anonymous":false,"type":"event"},{"name":"CommitNewFee","inputs":[{"type":"uint256","name":"deadline","indexed":true},{"type":"uint256","name":"fee","indexed":false},{"type":"uint256","name":"admin_fee","indexed":false},{"type":"uint256","name":"offpeg_fee_multiplier","indexed":false}],"anonymous":false,"type":"event"},{"name":"NewFee","inputs":[{"type":"uint256","name":"fee","indexed":false},{"type":"uint256","name":"admin_fee","indexed":false},{"type":"uint256","name":"offpeg_fee_multiplier","indexed":false}],"anonymous":false,"type":"event"},{"name":"RampA","inputs":[{"type":"uint256","name":"old_A","indexed":false},{"type":"uint256","name":"new_A","indexed":false},{"type":"uint256","name":"initial_time","indexed":false},{"type":"uint256","name":"future_time","indexed":false}],"anonymous":false,"type":"event"},{"name":"StopRampA","inputs":[{"type":"uint256","name":"A","indexed":false},{"type":"uint256","name":"t","indexed":false}],"anonymous":false,"type":"event"},{"outputs":[],"inputs":[{"type":"address[3]","name":"_coins"},{"type":"address[3]","name":"_underlying_coins"},{"type":"address","name":"_pool_token"},{"type":"address","name":"_aave_lending_pool"},{"type":"uint256","name":"_A"},{"type":"uint256","name":"_fee"},{"type":"uint256","name":"_admin_fee"},{"type":"uint256","name":"_offpeg_fee_multiplier"}],"stateMutability":"nonpayable","type":"constructor"},{"name":"A","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":5199},{"name":"A_precise","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":5161},{"name":"dynamic_fee","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"}],"stateMutability":"view","type":"function","gas":10278},{"name":"balances","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"i"}],"stateMutability":"view","type":"function","gas":2731},{"name":"get_virtual_price","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2680120},{"name":"calc_token_amount","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"bool","name":"is_deposit"}],"stateMutability":"view","type":"function","gas":5346581},{"name":"add_liquidity","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_min_mint_amount"}],"stateMutability":"nonpayable","type":"function"},{"name":"add_liquidity","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_min_mint_amount"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"get_dy","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"}],"stateMutability":"view","type":"function","gas":6239547},{"name":"get_dy_underlying","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"}],"stateMutability":"view","type":"function","gas":6239577},{"name":"exchange","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"},{"type":"uint256","name":"min_dy"}],"stateMutability":"nonpayable","type":"function","gas":6361682},{"name":"exchange_underlying","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"},{"type":"uint256","name":"min_dy"}],"stateMutability":"nonpayable","type":"function","gas":6369753},{"name":"remove_liquidity","outputs":[{"type":"uint256[3]","name":""}],"inputs":[{"type":"uint256","name":"_amount"},{"type":"uint256[3]","name":"_min_amounts"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity","outputs":[{"type":"uint256[3]","name":""}],"inputs":[{"type":"uint256","name":"_amount"},{"type":"uint256[3]","name":"_min_amounts"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity_imbalance","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_max_burn_amount"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity_imbalance","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_max_burn_amount"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"calc_withdraw_one_coin","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"_token_amount"},{"type":"int128","name":"i"}],"stateMutability":"view","type":"function","gas":4449067},{"name":"remove_liquidity_one_coin","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"_token_amount"},{"type":"int128","name":"i"},{"type":"uint256","name":"_min_amount"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity_one_coin","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"_token_amount"},{"type":"int128","name":"i"},{"type":"uint256","name":"_min_amount"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"ramp_A","outputs":[],"inputs":[{"type":"uint256","name":"_future_A"},{"type":"uint256","name":"_future_time"}],"stateMutability":"nonpayable","type":"function","gas":151954},{"name":"stop_ramp_A","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":148715},{"name":"commit_new_fee","outputs":[],"inputs":[{"type":"uint256","name":"new_fee"},{"type":"uint256","name":"new_admin_fee"},{"type":"uint256","name":"new_offpeg_fee_multiplier"}],"stateMutability":"nonpayable","type":"function","gas":146482},{"name":"apply_new_fee","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":133744},{"name":"revert_new_parameters","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":21985},{"name":"commit_transfer_ownership","outputs":[],"inputs":[{"type":"address","name":"_owner"}],"stateMutability":"nonpayable","type":"function","gas":74723},{"name":"apply_transfer_ownership","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":60800},{"name":"revert_transfer_ownership","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":22075},{"name":"withdraw_admin_fees","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":71651},{"name":"donate_admin_fees","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":62276},{"name":"kill_me","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":38058},{"name":"unkill_me","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":22195},{"name":"set_aave_referral","outputs":[],"inputs":[{"type":"uint256","name":"referral_code"}],"stateMutability":"nonpayable","type":"function","gas":37325},{"name":"coins","outputs":[{"type":"address","name":""}],"inputs":[{"type":"uint256","name":"arg0"}],"stateMutability":"view","type":"function","gas":2310},{"name":"underlying_coins","outputs":[{"type":"address","name":""}],"inputs":[{"type":"uint256","name":"arg0"}],"stateMutability":"view","type":"function","gas":2340},{"name":"admin_balances","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"arg0"}],"stateMutability":"view","type":"function","gas":2370},{"name":"fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2291},{"name":"offpeg_fee_multiplier","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2321},{"name":"admin_fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2351},{"name":"owner","outputs":[{"type":"address","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2381},{"name":"lp_token","outputs":[{"type":"address","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2411},{"name":"initial_A","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2441},{"name":"future_A","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2471},{"name":"initial_A_time","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2501},{"name":"future_A_time","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2531},{"name":"admin_actions_deadline","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2561},{"name":"transfer_ownership_deadline","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2591},{"name":"future_fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2621},{"name":"future_admin_fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2651},{"name":"future_offpeg_fee_multiplier","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2681},{"name":"future_owner","outputs":[{"type":"address","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2711}]
+                """
+                    ),
+                )
+                .functions.dynamic_fee(i, j)
+                .call()
+            )
+            # assert dyn_fee == contract_fee, f"{dyn_fee=} != {contract_fee=}"
+        else:
+            _fee = self.fee * dy // self.FEE_DENOMINATOR
+
+        print(f"{_fee=}")
+
         return dy - _fee
 
     def _get_y(
@@ -357,75 +407,29 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
     def get_D(self, xp: List[int], amp: int) -> int:
         N_COINS = len(self.tokens)
 
-        S: int = 0
+        S = 0
         for _x in xp:
             S += _x
         if S == 0:
             return 0
 
-        Dprev: int = 0
-        D: int = S
-        Ann: int = amp * N_COINS
-        for _i in range(255):
-            D_P: int = D
+        Dprev = 0
+        D = S
+        Ann = amp * N_COINS
+        for _ in range(255):
+            D_P = D
             for _x in xp:
-                D_P = (
-                    D_P * D // (_x * N_COINS)
-                )  # If division by 0, this will be borked: only withdrawal will work. And that is good
+                D_P = D_P * D // (_x * N_COINS)
             Dprev = D
             D = (Ann * S + D_P * N_COINS) * D // ((Ann - 1) * D + (N_COINS + 1) * D_P)
             # Equality with the precision of 1
             if D > Dprev:
                 if D - Dprev <= 1:
-                    break
+                    return D
             else:
                 if Dprev - D <= 1:
-                    break
-        return D
-
-    # def get_D(
-    #     self,
-    #     _xp: List[int],
-    #     _amp: int,
-    # ) -> int:
-    #     """
-    #     D invariant calculation in non-overflowing integer operations
-    #     iteratively
-
-    #     A * sum(x_i) * n**n + D = A * D * n**n + D**(n+1) / (n**n * prod(x_i))
-
-    #     Converging solution:
-    #     D[j+1] = (A * n**n * sum(x_i) - D[j]**(n+1) / (n**n prod(x_i))) / (A * n**n - 1)
-    #     """
-
-    #     N_COINS = len(self.tokens)
-
-    #     S = 0
-    #     for x in _xp:
-    #         S += x
-    #     if S == 0:
-    #         return 0
-
-    #     D = S
-    #     Ann: int = _amp * N_COINS
-    #     for _ in range(255):
-    #         D_P: int = D * D // _xp[0] * D // _xp[1] // N_COINS**N_COINS
-    #         Dprev: int = D
-    #         D = (
-    #             (Ann * S // self.A_PRECISION + D_P * N_COINS)
-    #             * D
-    #             // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
-    #         )
-    #         # Equality with the precision of 1
-    #         if D > Dprev:
-    #             if D - Dprev <= 1:
-    #                 return D
-    #         else:
-    #             if Dprev - D <= 1:
-    #                 return D
-    #     # convergence typically occurs in 4 rounds or less, this should be unreachable!
-    #     # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
-    #     raise EVMRevertError("get_D did not converge!")
+                    return D
+        raise EVMRevertError("get_D did not converge!")
 
     def calculate_tokens_out_from_tokens_in(
         self,
@@ -433,6 +437,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         token_out: Erc20Token,
         token_in_quantity: int,
         override_state: Optional[CurveStableswapPoolState] = None,
+        snowflake: bool = False,
     ) -> int:
         """
         Calculates the expected token OUTPUT for a target INPUT at current pool reserves.
@@ -449,28 +454,5 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             i=self.tokens.index(token_in),
             j=self.tokens.index(token_out),
             dx=token_in_quantity,
+            snowflake=snowflake,
         )
-
-    # def calculate_tokens_in_from_tokens_out(
-    #     self,
-    #     token_in: Erc20Token,
-    #     token_out: Erc20Token,
-    #     token_out_quantity: int,
-    #     override_state: Optional[CurveStableswapPoolState] = None,
-    # ) -> int:
-    #     """
-    #     Calculates the expected token INPUT for a target OUT at current pool reserves.
-    #     """
-
-    #     if token_out_quantity <= 0:
-    #         raise ZeroSwapError("token_out_quantity must be positive")
-
-    #     if override_state:
-    #         logger.debug("Overrides applied:")
-    #         logger.debug(f"Balances: {override_state.balances}")
-
-    #     return self._get_dx(
-    #         i=self.tokens.index(token_in),
-    #         j=self.tokens.index(token_out),
-    #         dy=token_out_quantity,
-    #     )
