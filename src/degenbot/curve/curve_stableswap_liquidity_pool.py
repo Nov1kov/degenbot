@@ -177,7 +177,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         self.rates = tuple(
             [10 ** (2 * self.PRECISION_DECIMALS - token.decimals) for token in self.tokens]
         )
-        print(f"{self.rates=}")
 
         if name is not None:  # pragma: no cover
             self.name = name
@@ -201,8 +200,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         if not silent:
             logger.info(f"{self.name} @ {self.address}")
-            logger.info(f"{self.rates=}")
-            logger.info(f"{self.a_coefficient=}")
             for token_id, (token, balance) in enumerate(zip(self.tokens, self.balances)):
                 logger.info(f"• Token {token_id}: {token} - Reserves: {balance}")
 
@@ -295,7 +292,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         _x = 0
         for _i in range(N_COINS):
-            print(f"{_i=}")
             if _i == i:
                 _x = x
             elif _i != j:
