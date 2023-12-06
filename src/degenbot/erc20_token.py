@@ -323,3 +323,6 @@ class EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE(Erc20Token):
         self,
     ):
         self.address = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+        self.symbol = "ETH"
+        self.name = "Ether Placeholder"
+        self.decimals = 18
