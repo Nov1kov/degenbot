@@ -1,12 +1,12 @@
-import pytest
-from degenbot.curve.curve_stableswap_liquidity_pool import CurveStableswapPool, BrokenPool
-import degenbot
-from web3 import Web3
-from degenbot.exceptions import ZeroSwapError
-import ujson
-from web3.contract import Contract
-from degenbot.curve.abi import CURVE_V1_FACTORY_ABI
 import itertools
+
+import degenbot
+import pytest
+import ujson
+from degenbot.curve.abi import CURVE_V1_FACTORY_ABI
+from degenbot.curve.curve_stableswap_liquidity_pool import BrokenPool, CurveStableswapPool
+from web3 import Web3
+from web3.contract import Contract
 
 FRXETH_WETH_CURVE_POOL_ADDRESS = "0x9c3B46C0Ceb5B9e304FCd6D88Fc50f7DD24B31Bc"
 CURVE_METAREGISTRY_ADDRESS = "0xF98B45FA17DE75FB1aD0e7aFD971b0ca00e379fC"
