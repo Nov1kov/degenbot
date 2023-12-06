@@ -24,11 +24,22 @@ from ..manager import Erc20TokenHelperManager
 from ..registry import AllPools
 from ..subscription_mixins import Subscriber, SubscriptionMixin
 from .abi import CURVE_V1_POOL_ABI, CURVE_METAREGISTRY_ABI, CURVE_REGISTRY_ABI, CURVE_V1_FACTORY_ABI
-from .stableswap_dataclasses import CurveStableswapPoolSimulationResult, CurveStableswapPoolState
+from .curve_stableswap_dataclasses import (
+    CurveStableswapPoolSimulationResult,
+    CurveStableswapPoolState,
+)
 
 CURVE_REGISTRY_ADDRESS = "0x90E00ACe148ca3b23Ac1bC8C240C2a7Dd9c2d7f5"
 CURVE_METAREGISTRY_ADDRESS = "0xF98B45FA17DE75FB1aD0e7aFD971b0ca00e379fC"
 CURVE_V1_FACTORY_ADDRESS = "0x127db66E7F0b16470Bec194d0f496F9Fa065d0A9"
+
+BROKEN_POOLS = [
+    "0x1F71f05CF491595652378Fe94B7820344A551B8E",
+]
+
+
+class BrokenPool(LiquidityPoolError):
+    ...
 
 
 class CurveStableswapPool(SubscriptionMixin, PoolHelper):
@@ -92,6 +103,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             simulating transactions through pools that do not exist.
         """
 
+        if address.lower() in [pool.lower() for pool in BROKEN_POOLS]:
+            raise BrokenPool
+
         self._state_lock = Lock()
 
         self.address: ChecksumAddress = to_checksum_address(address)
@@ -99,20 +113,34 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         _w3 = config.get_web3()
         _w3_contract = self._w3_contract
-        _w3_factory_contract: Contract = _w3.eth.contract(
-            address=CURVE_V1_FACTORY_ADDRESS, abi=CURVE_V1_FACTORY_ABI
-        )
-        _w3_registry_contract: Contract = _w3.eth.contract(
-            address=CURVE_REGISTRY_ADDRESS, abi=CURVE_REGISTRY_ABI
-        )
-        _w3_metaregistry_contract: Contract = _w3.eth.contract(
-            address=CURVE_METAREGISTRY_ADDRESS, abi=CURVE_METAREGISTRY_ABI
+
+        # _w3_factory_contract: Contract = _w3.eth.contract(
+        #     address=CURVE_V1_FACTORY_ADDRESS, abi=CURVE_V1_FACTORY_ABI
+        # )
+        # _w3_registry_contract: Contract = _w3.eth.contract(
+        #     address=CURVE_REGISTRY_ADDRESS, abi=CURVE_REGISTRY_ABI
+        # )
+
+        _w3_metaregistry_contract = self.metaregistry
+
+        self.lp_token = Erc20Token(
+            _w3_metaregistry_contract.functions.get_lp_token(self.address).call()
         )
 
-        self.fee: int = _w3_contract.functions.fee().call()
+        self.is_metapool = _w3_metaregistry_contract.functions.is_meta(self.address).call()
+        if self.is_metapool:
+            self.base_pool = CurveStableswapPool(
+                _w3_metaregistry_contract.functions.get_base_pool(self.address).call()
+            )
+
+        self.fee, *_ = _w3_metaregistry_contract.functions.get_fees(self.address).call()
         self._update_method = update_method
 
-        self.a_coefficient = _w3_contract.functions.A().call()
+        pool_params = _w3_metaregistry_contract.functions.get_pool_params(self.address).call()
+        if any(pool_params[1:]):
+            raise TypeError(f"Pool {self.address} is not a StableSwap Curve pool.")
+
+        self.a_coefficient, *_ = pool_params
         self.future_a_coefficient: Optional[int] = None
         self.future_a_coefficient_time: Optional[int] = None
 
@@ -138,6 +166,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             for token_address in _w3_metaregistry_contract.functions.get_coins(self.address).call()
             if token_address != ZERO_ADDRESS
         ]
+
         if "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" in token_addresses:
             print(
                 f"ETH placeholder found at token position {token_addresses.index('0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE')}"
@@ -166,22 +195,23 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 ]
             )
 
-        self.balances: List[int]
-        if not empty:
-            for token_index in range(len(self.tokens)):
-                print(
-                    f"Balance for token {token_index} = {_w3_contract.functions.balances(token_index).call()}"
-                )
-            self.balances = [
-                _w3_contract.functions.balances(token_index).call()
-                for token_index in range(len(self.tokens))
-            ]
-            print(f"{self.balances=}")
+        if self.is_metapool:
+            print(f"{self.address} is metapool: {self.tokens[0]}+{self.base_pool.tokens}")
 
-            metaregistry_balances = _w3_metaregistry_contract.functions.get_balances(
-                self.address
-            ).call()[0 : len(self.tokens)]
-            print(f"{metaregistry_balances=}")
+        # TODO: create base pool helper separately, store LP token balance
+        self.balances: List[int] = []
+        self.underlying_balances: Optional[List[int]] = None
+
+        if not empty:
+            self.balances = _w3_metaregistry_contract.functions.get_balances(self.address).call()[
+                : len(self.tokens)
+            ]
+            if self.is_metapool:
+                self.underlying_balances = (
+                    _w3_metaregistry_contract.functions.get_underlying_balances(
+                        self.address
+                    ).call()[: len(self.tokens)]
+                )
 
         # For 3pool:
         # RATES = [
@@ -215,7 +245,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         self._subscribers: Set[Subscriber] = set()
 
         if not silent:
-            logger.info(f"{self.name} @ {self.address}")
+            logger.info(
+                f"{self.name} @ {self.address}, A={self.a_coefficient}, fee={100*self.fee/self.FEE_DENOMINATOR:.2f}%"
+            )
             for token_id, (token, balance) in enumerate(zip(self.tokens, self.balances)):
                 logger.info(f"• Token {token_id}: {token} - Reserves: {balance}")
 
@@ -230,7 +262,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             abi=self.abi,
         )
 
-    def _get_dy(self, i: int, j: int, dx: int, snowflake: bool = False) -> int:
+    def _get_dy(self, i: int, j: int, dx: int, dynamic_fee: bool = False) -> int:
         """
         @notice Calculate the current output dy given input dx
         @dev Index values can be found via the `coins` public getter method
@@ -240,7 +272,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         @return Amount of `j` predicted
         """
 
-        # snowflake mode added for dynamic fee pools:
+        # dynamic fee pools:
         # 0xDeBF20617708857ebe4F679508E7b7863a8A8EeE
 
         def _dynamic_fee(xpi: int, xpj: int, _fee: int, _feemul: int) -> int:
@@ -254,15 +286,76 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         # ref: https://github.com/curveresearch/notes/blob/main/stableswap.pdf
 
+        if self.address in ["0x3Fb78e61784C9c637D560eDE23Ad57CA1294c14a"]:
+            # TODO: investigate off-by-two compared to basic calc
+
+            rates = self.rates
+            live_balances = [token.get_balance(self.address) for token in self.tokens]
+            admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call()[
+                : len(self.tokens)
+            ]
+            print(f"{live_balances=}")
+            print(f"{admin_balances=}")
+            balances = [
+                pool_balance - admin_balance
+                for pool_balance, admin_balance in zip(live_balances, admin_balances)
+            ]
+            print(f"{balances=}")
+
+            xp = self._xp_mem(rates, balances)
+            x = xp[i] + (dx * rates[i] // self.PRECISION)
+            y = self._get_y(i, j, x, xp)
+            dy = xp[j] - y - 1
+            fee = self.fee * dy // self.FEE_DENOMINATOR
+            return (dy - fee) * self.PRECISION // rates[j]
+
+        # TODO: investigate off-by-one compared to basic calc
+        if self.address in [
+            "0x6A274dE3e2462c7614702474D64d376729831dCa",
+            "0x3CFAa1596777CAD9f5004F9a0c443d912E262243",
+            "0xb9446c4Ef5EBE66268dA6700D26f96273DE3d571",
+        ]:
+            rates = self.rates
+            xp = self._xp_mem(rates, self.balances)
+            x = xp[i] + (dx * rates[i] // self.PRECISION)
+            y = self._get_y(i, j, x, xp)
+            dy = xp[j] - y - 1
+            fee = self.fee * dy // self.FEE_DENOMINATOR
+            return (dy - fee) * self.PRECISION // rates[j]
+
+        if self.address in ["0x48fF31bBbD8Ab553Ebe7cBD84e1eA3dBa8f54957"]:
+            xp = self.balances
+            x = xp[i] + dx
+            y = self._get_y_with_a_precision(i, j, x, xp)
+            print(f"calculated {y=} with A_PRECISION")
+            # y = self._get_y(i, j, x, xp)
+            # print(f"calculated {y=}")
+            dy = xp[j] - y - 1
+            fee = self.fee * dy // self.FEE_DENOMINATOR
+            return dy - fee
+
+        if self.is_metapool:
+            _rates = [
+                self.rates[0],
+                self.base_pool._w3_contract.functions.get_virtual_price().call(),
+            ]
+            print(f"metapool rate applied: {_rates=}")
+            xp = self._xp_mem(rates=_rates)
+            x = xp[i] + (dx * _rates[i] // self.PRECISION)
+            y = self._get_y(i, j, x, xp)
+            dy = xp[j] - y - 1
+            _fee = self.fee * dy // self.FEE_DENOMINATOR
+            return (dy - _fee) * self.PRECISION // _rates[j]
+
         # dx and dy in c-units
         rates = self.rates
-        xp = self._xp()
+        xp = self._xp_mem()
 
         x = xp[i] + (dx * rates[i] // self.PRECISION)
         y = self._get_y(i, j, x, xp)
         dy = (xp[j] - y - 1) * self.PRECISION // rates[j]
-        print(f"{snowflake=}")
-        if snowflake:
+
+        if dynamic_fee:
             dy = (xp[j] - y) * self.PRECISION // rates[j]
             import ujson
 
@@ -283,7 +376,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 (xp[i] + x) // 2, (xp[j] + y) // 2, self.fee, offpeg_fee_multiplier
             )
             _fee = dyn_fee * dy // self.FEE_DENOMINATOR
-            # compare calculated dynamic fee to contract fee
 
             contract_fee = (
                 self._w3_contract.w3.eth.contract(
@@ -297,11 +389,10 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 .functions.dynamic_fee(i, j)
                 .call()
             )
-            # assert dyn_fee == contract_fee, f"{dyn_fee=} != {contract_fee=}"
+            # compare calculated dynamic fee to contract fee
+            assert dyn_fee == contract_fee, f"{dyn_fee=} != {contract_fee=}"
         else:
             _fee = self.fee * dy // self.FEE_DENOMINATOR
-
-        print(f"{_fee=}")
 
         return dy - _fee
 
@@ -334,12 +425,13 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         assert i >= 0
         assert i < N_COINS
 
-        A = self._A()
-        D = self.get_D(xp, A)
+        amp = self._A()
+        D = self._get_D(xp, amp)
+        print(f"Calculated {D=}")
         c = D
-        S_ = 0
-        Ann = A * N_COINS
+        Ann = amp * N_COINS
 
+        S_ = 0
         _x = 0
         for _i in range(N_COINS):
             if _i == i:
@@ -350,12 +442,11 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 continue
             S_ += _x
             c = c * D // (_x * N_COINS)
+
         c = c * D // (Ann * N_COINS)
         b = S_ + D // Ann  # - D
-
-        y_prev = 0
         y = D
-        for _i in range(255):
+        for _ in range(255):
             y_prev = y
             y = (y * y + c) // (2 * y + b - D)
             # Equality with the precision of 1
@@ -367,10 +458,79 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     break
         return y
 
-    def _xp(self) -> List[int]:
-        return [
-            rate * balance // self.PRECISION for rate, balance in zip(self.rates, self.balances)
-        ]
+    def _get_y_with_a_precision(
+        self,
+        i: int,
+        j: int,
+        x: int,
+        xp: Iterable[int],
+    ) -> int:
+        """
+        Calculate x[j] if one makes x[i] = x
+
+        Done by solving quadratic equation iteratively.
+        x_1**2 + x_1 * (sum' - (A*n**n - 1) * D / (A * n**n)) = D ** (n + 1) / (n ** (2 * n) * prod' * A)
+        x_1**2 + b*x_1 = c
+
+        x_1 = (x_1**2 + c) / (2*x_1 + b)
+        """
+
+        # x in the input is converted to the same price/precision
+
+        N_COINS = len(self.tokens)
+
+        assert i != j, "same coin"
+        assert j >= 0, "j below zero"
+        assert j < N_COINS, "j above N_COINS"
+
+        # should be unreachable, but good for safety
+        assert i >= 0
+        assert i < N_COINS
+
+        amp = self._A()
+        D = self._get_D_with_A_precision(xp, amp)
+        print(f"Calculated {D=} with A_PRECISION")
+        S_ = 0
+        _x = 0
+        y_prev = 0
+        c = D
+        Ann = amp * N_COINS
+
+        for _i in range(N_COINS):
+            if _i == i:
+                _x = x
+            elif _i != j:
+                _x = xp[_i]
+            else:
+                continue
+            S_ += _x
+            c = c * D // (_x * N_COINS)
+
+        c = c * D * self.A_PRECISION // (Ann * N_COINS)
+        b = S_ + D * self.A_PRECISION // Ann  # - D
+        y = D
+
+        for _i in range(255):
+            y_prev = y
+            y = (y * y + c) // (2 * y + b - D)
+            # Equality with the precision of 1
+            if y > y_prev:
+                if y - y_prev <= 1:
+                    return y
+            else:
+                if y_prev - y <= 1:
+                    return y
+        raise
+
+    def _xp_mem(
+        self, rates: Optional[List[int]] = None, balances: Optional[List[int]] = None
+    ) -> List[int]:
+        if rates is None:
+            rates = self.rates
+        if balances is None:
+            balances = self.balances
+
+        return [rate * balance // self.PRECISION for rate, balance in zip(rates, balances)]
 
     def _A(
         self,
@@ -404,18 +564,44 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         else:  # when t1 == 0 or timestamp >= t1
             return A1
 
-    def get_D(self, xp: List[int], amp: int) -> int:
+    def _get_D_with_A_precision(self, _xp: List[int], _amp: int) -> int:
         N_COINS = len(self.tokens)
 
-        S = 0
-        for _x in xp:
-            S += _x
+        S = sum(_xp)
+        if S == 0:
+            return 0
+
+        D = S
+        Ann = _amp * N_COINS
+        for _ in range(255):
+            D_P = D * D // _xp[0] * D // _xp[1] // (N_COINS) ** 2
+            Dprev = D
+            D = (
+                (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                * D
+                // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+            )
+            # Equality with the precision of 1
+            if D > Dprev:
+                if D - Dprev <= 1:
+                    return D
+            else:
+                if Dprev - D <= 1:
+                    return D
+        # convergence typically occurs in 4 rounds or less, this should be unreachable!
+        raise
+
+    def _get_D(self, xp: List[int], amp: int) -> int:
+        N_COINS = len(self.tokens)
+
+        S = sum(xp)
         if S == 0:
             return 0
 
         Dprev = 0
         D = S
         Ann = amp * N_COINS
+
         for _ in range(255):
             D_P = D
             for _x in xp:
@@ -429,7 +615,22 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             else:
                 if Dprev - D <= 1:
                     return D
+
         raise EVMRevertError("get_D did not converge!")
+
+    @property
+    def _w3_contract(self) -> Contract:
+        return config.get_web3().eth.contract(
+            address=self.address,
+            abi=self.abi,
+        )
+
+    @property
+    def metaregistry(self) -> Contract:
+        return config.get_web3().eth.contract(
+            address=CURVE_METAREGISTRY_ADDRESS,
+            abi=CURVE_METAREGISTRY_ABI,
+        )
 
     def calculate_tokens_out_from_tokens_in(
         self,
@@ -437,7 +638,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         token_out: Erc20Token,
         token_in_quantity: int,
         override_state: Optional[CurveStableswapPoolState] = None,
-        snowflake: bool = False,
+        dynamic_fee: bool = False,
     ) -> int:
         """
         Calculates the expected token OUTPUT for a target INPUT at current pool reserves.
@@ -454,5 +655,5 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             i=self.tokens.index(token_in),
             j=self.tokens.index(token_out),
             dx=token_in_quantity,
-            snowflake=snowflake,
+            dynamic_fee=dynamic_fee,
         )
