@@ -4,7 +4,11 @@ import degenbot
 import pytest
 import ujson
 from degenbot.curve.abi import CURVE_V1_FACTORY_ABI
-from degenbot.curve.curve_stableswap_liquidity_pool import BrokenPool, CurveStableswapPool
+from degenbot.curve.curve_stableswap_liquidity_pool import (
+    BrokenPool,
+    CurveStableswapPool,
+    BROKEN_POOLS,
+)
 from web3 import Web3
 from web3.contract import Contract
 
@@ -31,6 +35,13 @@ CURVE_POOLINFO_ABI = ujson.loads(
     """
 )
 # -----------------------------------------------------------
+
+
+@pytest.fixture()
+def metaregistry(local_web3_ethereum_full: Web3) -> Contract:
+    return local_web3_ethereum_full.eth.contract(
+        address=CURVE_METAREGISTRY_ADDRESS, abi=CURVE_METAREGISTRY_ABI
+    )
 
 
 def _test_balances(lp: CurveStableswapPool, metaregistry: Contract):
@@ -71,13 +82,6 @@ def _test_calculations(lp: CurveStableswapPool):
             ).call()
 
             assert calc_amount == contract_amount
-
-
-@pytest.fixture()
-def metaregistry(local_web3_ethereum_full: Web3) -> Contract:
-    return local_web3_ethereum_full.eth.contract(
-        address=CURVE_METAREGISTRY_ADDRESS, abi=CURVE_METAREGISTRY_ABI
-    )
 
 
 def test_create_pool(local_web3_ethereum_full: Web3):
@@ -127,7 +131,7 @@ def test_base_registry_pools(local_web3_ethereum_full: Web3, metaregistry: Contr
 def test_single_pool(local_web3_ethereum_archive: Web3, metaregistry: Contract):
     degenbot.set_web3(local_web3_ethereum_archive)
 
-    POOL_ADDRESS = "0x48fF31bBbD8Ab553Ebe7cBD84e1eA3dBa8f54957"
+    POOL_ADDRESS = "0x84997FAFC913f1613F51Bb0E2b5854222900514B"
 
     try:
         lp = CurveStableswapPool(address=POOL_ADDRESS)
@@ -138,7 +142,7 @@ def test_single_pool(local_web3_ethereum_archive: Web3, metaregistry: Contract):
         _test_calculations(lp)
 
 
-def test_factory_stableswap_pools(local_web3_ethereum_full: Web3, metaregistry):
+def test_factory_stableswap_pools(local_web3_ethereum_full: Web3, metaregistry: Contract):
     """
     Test the user-deployed pools deployed by the factory
     """
@@ -152,14 +156,14 @@ def test_factory_stableswap_pools(local_web3_ethereum_full: Web3, metaregistry):
     for pool_id in range(pool_count):
         pool_address = stableswap_factory.functions.pool_list(pool_id).call()
 
-        # TODO: BROKEN POOLS TO INVESTIGATE
-        if pool_address in [
-            "0x3Fb78e61784C9c637D560eDE23Ad57CA1294c14a",
-        ]:
+        if pool_address in BROKEN_POOLS:
             continue
 
         try:
             lp = CurveStableswapPool(address=pool_address)
+        except Exception:
+            print(f"Cannot build pool {pool_address}")
+            raise
         except BrokenPool:
             pass
         else:
