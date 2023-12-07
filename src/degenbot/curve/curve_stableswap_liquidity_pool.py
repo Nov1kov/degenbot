@@ -35,6 +35,8 @@ CURVE_V1_FACTORY_ADDRESS = "0x127db66E7F0b16470Bec194d0f496F9Fa065d0A9"
 
 BROKEN_POOLS = [
     "0x1F71f05CF491595652378Fe94B7820344A551B8E",
+    "0xD652c40fBb3f06d6B58Cb9aa9CFF063eE63d465D",
+    "0x28B0Cf1baFB707F2c6826d10caf6DD901a6540C5",
 ]
 
 
@@ -141,6 +143,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             raise TypeError(f"Pool {self.address} is not a StableSwap Curve pool.")
 
         self.a_coefficient, *_ = pool_params
+        assert self.a_coefficient == _w3_contract.functions.A().call()
         self.future_a_coefficient: Optional[int] = None
         self.future_a_coefficient_time: Optional[int] = None
 
@@ -194,9 +197,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     for token_address in token_addresses
                 ]
             )
-
-        if self.is_metapool:
-            print(f"{self.address} is metapool: {self.tokens[0]}+{self.base_pool.tokens}")
 
         # TODO: create base pool helper separately, store LP token balance
         self.balances: List[int] = []
@@ -272,10 +272,11 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         @return Amount of `j` predicted
         """
 
-        # dynamic fee pools:
-        # 0xDeBF20617708857ebe4F679508E7b7863a8A8EeE
+        # ref: https://github.com/curveresearch/notes/blob/main/stableswap.pdf
 
         def _dynamic_fee(xpi: int, xpj: int, _fee: int, _feemul: int) -> int:
+            # dynamic fee pools:
+            # 0xDeBF20617708857ebe4F679508E7b7863a8A8EeE
             if _feemul <= self.FEE_DENOMINATOR:
                 return _fee
             else:
@@ -284,9 +285,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     (_feemul - self.FEE_DENOMINATOR) * 4 * xpi * xpj // xps2 + self.FEE_DENOMINATOR
                 )
 
-        # ref: https://github.com/curveresearch/notes/blob/main/stableswap.pdf
-
-        if self.address in ["0x3Fb78e61784C9c637D560eDE23Ad57CA1294c14a"]:
+        if self.address in ("0x3Fb78e61784C9c637D560eDE23Ad57CA1294c14a",):
             # TODO: investigate off-by-two compared to basic calc
 
             rates = self.rates
@@ -294,27 +293,26 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call()[
                 : len(self.tokens)
             ]
-            print(f"{live_balances=}")
-            print(f"{admin_balances=}")
             balances = [
                 pool_balance - admin_balance
                 for pool_balance, admin_balance in zip(live_balances, admin_balances)
             ]
-            print(f"{balances=}")
-
             xp = self._xp_mem(rates, balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
-            y = self._get_y(i, j, x, xp)
+            y = self._get_y_with_A_precision(i, j, x, xp)
             dy = xp[j] - y - 1
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - fee) * self.PRECISION // rates[j]
 
         # TODO: investigate off-by-one compared to basic calc
-        if self.address in [
+        elif self.address in (
             "0x6A274dE3e2462c7614702474D64d376729831dCa",
             "0x3CFAa1596777CAD9f5004F9a0c443d912E262243",
             "0xb9446c4Ef5EBE66268dA6700D26f96273DE3d571",
-        ]:
+            "0xe7A3b38c39F97E977723bd1239C3470702568e7B",
+            "0xD7C10449A6D134A9ed37e2922F8474EAc6E5c100",
+            "0xBa3436Fd341F2C8A928452Db3C5A3670d1d5Cc73",
+        ):
             rates = self.rates
             xp = self._xp_mem(rates, self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
@@ -323,26 +321,26 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - fee) * self.PRECISION // rates[j]
 
-        if self.address in ["0x48fF31bBbD8Ab553Ebe7cBD84e1eA3dBa8f54957"]:
+        elif self.address in ("0x48fF31bBbD8Ab553Ebe7cBD84e1eA3dBa8f54957",):
             xp = self.balances
             x = xp[i] + dx
-            y = self._get_y_with_a_precision(i, j, x, xp)
-            print(f"calculated {y=} with A_PRECISION")
-            # y = self._get_y(i, j, x, xp)
-            # print(f"calculated {y=}")
-            dy = xp[j] - y - 1
-            fee = self.fee * dy // self.FEE_DENOMINATOR
-            return dy - fee
+            y_prec = self._get_y_with_A_precision(i, j, x, xp)
+            dy_prec = xp[j] - y_prec - 1
+            fee_prec = self.fee * dy_prec // self.FEE_DENOMINATOR
 
-        if self.is_metapool:
+            return dy_prec - fee_prec
+
+        elif self.is_metapool:
             _rates = [
                 self.rates[0],
                 self.base_pool._w3_contract.functions.get_virtual_price().call(),
             ]
-            print(f"metapool rate applied: {_rates=}")
             xp = self._xp_mem(rates=_rates)
             x = xp[i] + (dx * _rates[i] // self.PRECISION)
-            y = self._get_y(i, j, x, xp)
+            if self.address in ("0x84997FAFC913f1613F51Bb0E2b5854222900514B",):
+                y = self._get_y_with_A_precision(i, j, x, xp)
+            else:
+                y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
             _fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - _fee) * self.PRECISION // _rates[j]
@@ -427,7 +425,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         amp = self._A()
         D = self._get_D(xp, amp)
-        print(f"Calculated {D=}")
         c = D
         Ann = amp * N_COINS
 
@@ -458,7 +455,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     break
         return y
 
-    def _get_y_with_a_precision(
+    def _get_y_with_A_precision(
         self,
         i: int,
         j: int,
@@ -475,9 +472,8 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         x_1 = (x_1**2 + c) / (2*x_1 + b)
         """
 
-        # x in the input is converted to the same price/precision
-
         N_COINS = len(self.tokens)
+        # x in the input is converted to the same price/precision
 
         assert i != j, "same coin"
         assert j >= 0, "j below zero"
@@ -487,9 +483,8 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         assert i >= 0
         assert i < N_COINS
 
-        amp = self._A()
+        amp = self._A_with_A_precision()
         D = self._get_D_with_A_precision(xp, amp)
-        print(f"Calculated {D=} with A_PRECISION")
         S_ = 0
         _x = 0
         y_prev = 0
@@ -564,32 +559,37 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         else:  # when t1 == 0 or timestamp >= t1
             return A1
 
-    def _get_D_with_A_precision(self, _xp: List[int], _amp: int) -> int:
-        N_COINS = len(self.tokens)
+    def _A_with_A_precision(
+        self,
+        timestamp: Optional[int] = None,
+    ) -> int:
+        """
+        Handle ramping A up or down
+        """
 
-        S = sum(_xp)
-        if S == 0:
-            return 0
+        if self.future_a_coefficient is None:
+            # Some pools do not have a ramp, so return A directly
+            return self.a_coefficient * self.A_PRECISION
 
-        D = S
-        Ann = _amp * N_COINS
-        for _ in range(255):
-            D_P = D * D // _xp[0] * D // _xp[1] // (N_COINS) ** 2
-            Dprev = D
-            D = (
-                (Ann * S // self.A_PRECISION + D_P * N_COINS)
-                * D
-                // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
-            )
-            # Equality with the precision of 1
-            if D > Dprev:
-                if D - Dprev <= 1:
-                    return D
+        if timestamp is None:
+            timestamp = self.future_a_coefficient_time + 1
+
+        t1 = self.future_a_coefficient_time
+        A1 = self.future_a_coefficient * self.A_PRECISION
+
+        if (
+            timestamp < t1
+        ):  # <--- modified from contract template, takes timestamp instead of block.timestamp
+            A0 = self.initial_a_coefficient
+            t0 = self.initial_a_coefficient_time
+            # Expressions in int cannot have negative numbers, thus "if"
+            if A1 > A0:
+                return A0 + (A1 - A0) * (timestamp - t0) // (t1 - t0)
             else:
-                if Dprev - D <= 1:
-                    return D
-        # convergence typically occurs in 4 rounds or less, this should be unreachable!
-        raise
+                return A0 - (A0 - A1) * (timestamp - t0) // (t1 - t0)
+
+        else:  # when t1 == 0 or timestamp >= t1
+            return A1
 
     def _get_D(self, xp: List[int], amp: int) -> int:
         N_COINS = len(self.tokens)
@@ -617,6 +617,33 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     return D
 
         raise EVMRevertError("get_D did not converge!")
+
+    def _get_D_with_A_precision(self, _xp: List[int], _amp: int) -> int:
+        N_COINS = len(self.tokens)
+
+        S = sum(_xp)
+        if S == 0:
+            return 0
+
+        D = S
+        Ann = _amp * N_COINS
+        for _ in range(255):
+            D_P = D * D // _xp[0] * D // _xp[1] // (N_COINS**2)
+            Dprev = D
+            D = (
+                (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                * D
+                // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+            )
+            # Equality with the precision of 1
+            if D > Dprev:
+                if D - Dprev <= 1:
+                    return D
+            else:
+                if Dprev - D <= 1:
+                    return D
+        # convergence typically occurs in 4 rounds or less, this should be unreachable!
+        raise
 
     @property
     def _w3_contract(self) -> Contract:
