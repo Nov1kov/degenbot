@@ -39,8 +39,8 @@ CURVE_POOLINFO_ABI = ujson.loads(
 
 
 @pytest.fixture()
-def metaregistry(local_web3_ethereum_archive: Web3) -> Contract:
-    return local_web3_ethereum_archive.eth.contract(
+def metaregistry(local_web3_ethereum_full: Web3) -> Contract:
+    return local_web3_ethereum_full.eth.contract(
         address=CURVE_METAREGISTRY_ADDRESS, abi=CURVE_METAREGISTRY_ABI
     )
 
@@ -79,8 +79,8 @@ def _test_calculations(lp: CurveStableswapPool):
             assert calc_amount == contract_amount
 
 
-def test_create_pool(local_web3_ethereum_archive: Web3):
-    degenbot.set_web3(local_web3_ethereum_archive)
+def test_create_pool(local_web3_ethereum_full: Web3):
+    degenbot.set_web3(local_web3_ethereum_full)
     lp = CurveStableswapPool(FRXETH_WETH_CURVE_POOL_ADDRESS)
 
     # Test providing tokens
@@ -94,21 +94,21 @@ def test_create_pool(local_web3_ethereum_archive: Web3):
         )
 
 
-def test_3pool(local_web3_ethereum_archive: Web3, metaregistry: Contract):
-    degenbot.set_web3(local_web3_ethereum_archive)
+def test_3pool(local_web3_ethereum_full: Web3, metaregistry: Contract):
+    degenbot.set_web3(local_web3_ethereum_full)
     tripool = CurveStableswapPool("0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7")
 
     _test_balances(tripool, metaregistry)
     _test_calculations(tripool)
 
 
-def test_base_registry_pools(local_web3_ethereum_archive: Web3, metaregistry: Contract):
+def test_base_registry_pools(local_web3_ethereum_full: Web3, metaregistry: Contract):
     """
     Test the custom pools deployed by Curve
     """
-    degenbot.set_web3(local_web3_ethereum_archive)
+    degenbot.set_web3(local_web3_ethereum_full)
 
-    registry: Contract = local_web3_ethereum_archive.eth.contract(
+    registry: Contract = local_web3_ethereum_full.eth.contract(
         address=CURVE_REGISTRY_ADDRESS, abi=CURVE_REGISTRY_ABI
     )
     pool_count = registry.functions.pool_count().call()
@@ -123,23 +123,23 @@ def test_base_registry_pools(local_web3_ethereum_archive: Web3, metaregistry: Co
         _test_calculations(lp)
 
 
-def test_single_pool(local_web3_ethereum_archive: Web3, metaregistry: Contract):
-    degenbot.set_web3(local_web3_ethereum_archive)
+def test_single_pool(local_web3_ethereum_full: Web3, metaregistry: Contract):
+    degenbot.set_web3(local_web3_ethereum_full)
 
-    POOL_ADDRESS = "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE"
+    POOL_ADDRESS = "0xA2B47E3D5c44877cca798226B7B8118F9BFb7A56"
 
     lp = CurveStableswapPool(address=POOL_ADDRESS)
     _test_balances(lp, metaregistry)
     _test_calculations(lp)
 
 
-def test_factory_stableswap_pools(local_web3_ethereum_archive: Web3, metaregistry: Contract):
+def test_factory_stableswap_pools(local_web3_ethereum_full: Web3, metaregistry: Contract):
     """
     Test the user-deployed pools deployed by the factory
     """
-    degenbot.set_web3(local_web3_ethereum_archive)
+    degenbot.set_web3(local_web3_ethereum_full)
 
-    stableswap_factory: Contract = local_web3_ethereum_archive.eth.contract(
+    stableswap_factory: Contract = local_web3_ethereum_full.eth.contract(
         address=CURVE_V1_FACTORY_ADDRESS, abi=CURVE_V1_FACTORY_ABI
     )
     pool_count = stableswap_factory.functions.pool_count().call()
@@ -161,8 +161,8 @@ def test_factory_stableswap_pools(local_web3_ethereum_archive: Web3, metaregistr
             raise
 
 
-def test_all_registered_pools(local_web3_ethereum_archive: Web3, metaregistry: Contract):
-    degenbot.set_web3(local_web3_ethereum_archive)
+def test_all_registered_pools(local_web3_ethereum_full: Web3, metaregistry: Contract):
+    degenbot.set_web3(local_web3_ethereum_full)
 
     pool_count = metaregistry.functions.pool_count().call()
 
