@@ -39,8 +39,8 @@ CURVE_POOLINFO_ABI = ujson.loads(
 
 
 @pytest.fixture()
-def metaregistry(local_web3_ethereum_full: Web3) -> Contract:
-    return local_web3_ethereum_full.eth.contract(
+def metaregistry(local_web3_ethereum_archive: Web3) -> Contract:
+    return local_web3_ethereum_archive.eth.contract(
         address=CURVE_METAREGISTRY_ADDRESS, abi=CURVE_METAREGISTRY_ABI
     )
 
@@ -64,16 +64,10 @@ def _test_calculations(lp: CurveStableswapPool):
 
             print(f"Simulating swap: {amount} {token_in} for {token_out}")
 
-            if lp.address == "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE":
-                dynamic_fee = True
-            else:
-                dynamic_fee = False
-
             calc_amount = lp.calculate_tokens_out_from_tokens_in(
                 token_in=token_in,
                 token_out=token_out,
                 token_in_quantity=amount,
-                dynamic_fee=dynamic_fee,
             )
 
             contract_amount = lp._w3_contract.functions.get_dy(
@@ -85,8 +79,8 @@ def _test_calculations(lp: CurveStableswapPool):
             assert calc_amount == contract_amount
 
 
-def test_create_pool(local_web3_ethereum_full: Web3):
-    degenbot.set_web3(local_web3_ethereum_full)
+def test_create_pool(local_web3_ethereum_archive: Web3):
+    degenbot.set_web3(local_web3_ethereum_archive)
     lp = CurveStableswapPool(FRXETH_WETH_CURVE_POOL_ADDRESS)
 
     # Test providing tokens
@@ -100,21 +94,21 @@ def test_create_pool(local_web3_ethereum_full: Web3):
         )
 
 
-def test_3pool(local_web3_ethereum_full: Web3, metaregistry: Contract):
-    degenbot.set_web3(local_web3_ethereum_full)
+def test_3pool(local_web3_ethereum_archive: Web3, metaregistry: Contract):
+    degenbot.set_web3(local_web3_ethereum_archive)
     tripool = CurveStableswapPool("0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7")
 
     _test_balances(tripool, metaregistry)
     _test_calculations(tripool)
 
 
-def test_base_registry_pools(local_web3_ethereum_full: Web3, metaregistry: Contract):
+def test_base_registry_pools(local_web3_ethereum_archive: Web3, metaregistry: Contract):
     """
     Test the custom pools deployed by Curve
     """
-    degenbot.set_web3(local_web3_ethereum_full)
+    degenbot.set_web3(local_web3_ethereum_archive)
 
-    registry: Contract = local_web3_ethereum_full.eth.contract(
+    registry: Contract = local_web3_ethereum_archive.eth.contract(
         address=CURVE_REGISTRY_ADDRESS, abi=CURVE_REGISTRY_ABI
     )
     pool_count = registry.functions.pool_count().call()
@@ -132,20 +126,20 @@ def test_base_registry_pools(local_web3_ethereum_full: Web3, metaregistry: Contr
 def test_single_pool(local_web3_ethereum_archive: Web3, metaregistry: Contract):
     degenbot.set_web3(local_web3_ethereum_archive)
 
-    POOL_ADDRESS = "0x59Ab5a5b5d617E478a2479B0cAD80DA7e2831492"
+    POOL_ADDRESS = "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE"
 
     lp = CurveStableswapPool(address=POOL_ADDRESS)
     _test_balances(lp, metaregistry)
     _test_calculations(lp)
 
 
-def test_factory_stableswap_pools(local_web3_ethereum_full: Web3, metaregistry: Contract):
+def test_factory_stableswap_pools(local_web3_ethereum_archive: Web3, metaregistry: Contract):
     """
     Test the user-deployed pools deployed by the factory
     """
-    degenbot.set_web3(local_web3_ethereum_full)
+    degenbot.set_web3(local_web3_ethereum_archive)
 
-    stableswap_factory: Contract = local_web3_ethereum_full.eth.contract(
+    stableswap_factory: Contract = local_web3_ethereum_archive.eth.contract(
         address=CURVE_V1_FACTORY_ADDRESS, abi=CURVE_V1_FACTORY_ABI
     )
     pool_count = stableswap_factory.functions.pool_count().call()
@@ -167,8 +161,8 @@ def test_factory_stableswap_pools(local_web3_ethereum_full: Web3, metaregistry: 
             raise
 
 
-def test_all_registered_pools(local_web3_ethereum_full: Web3, metaregistry: Contract):
-    degenbot.set_web3(local_web3_ethereum_full)
+def test_all_registered_pools(local_web3_ethereum_archive: Web3, metaregistry: Contract):
+    degenbot.set_web3(local_web3_ethereum_archive)
 
     pool_count = metaregistry.functions.pool_count().call()
 
