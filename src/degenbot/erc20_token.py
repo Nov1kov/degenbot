@@ -326,3 +326,6 @@ class EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE(Erc20Token):
         self.symbol = "ETH"
         self.name = "Ether Placeholder"
         self.decimals = 18
+
+    def get_balance(self, *args) -> int:
+        return config.get_web3().eth.get_balance(self.address)
