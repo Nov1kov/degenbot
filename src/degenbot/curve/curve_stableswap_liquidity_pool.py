@@ -51,8 +51,9 @@ class BrokenPool(LiquidityPoolError):
 class CurveStableswapPool(SubscriptionMixin, PoolHelper):
     # Constants from contract
     # ref: https://github.com/curvefi/curve-contract/blob/master/contracts/pool-templates/base/SwapTemplateBase.vy
-    PRECISION = 10**18
     PRECISION_DECIMALS = 18
+    PRECISION = 10**PRECISION_DECIMALS
+    LENDING_PRECISION = PRECISION
     FEE_DENOMINATOR = 10**10
     A_PRECISION = 100
 
@@ -126,6 +127,17 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     {
                         "to": self.address,
                         "data": HexBytes(Web3.keccak(text="oracle_method()"))[:4],
+                    }
+                ),
+                byteorder="big",
+            )
+
+        if self.address == "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE":
+            self.offpeg_fee_multiplier = int.from_bytes(
+                _w3.eth.call(
+                    {
+                        "to": self.address,
+                        "data": HexBytes(Web3.keccak(text="offpeg_fee_multiplier()"))[:4],
                     }
                 ),
                 byteorder="big",
@@ -212,7 +224,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 ]
             )
 
-        # TODO: create base pool helper separately, store LP token balance
         self.balances: List[int] = []
         self.underlying_balances: Optional[List[int]] = None
 
@@ -220,6 +231,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             self.balances = _w3_metaregistry_contract.functions.get_balances(self.address).call()[
                 : len(self.tokens)
             ]
+            print(f"{self.balances=}")
             if self.is_metapool:
                 self.underlying_balances = (
                     _w3_metaregistry_contract.functions.get_underlying_balances(
@@ -228,15 +240,18 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 )
 
         # For 3pool:
-        # RATES = [
+        # rate_multipliers = [
         #   1000000000000000000,             <------ 10**18 == 10**(18 + 18 - 18)
         #   1000000000000000000000000000000, <------ 10**30 == 10**(18 + 18 - 6)
         #   1000000000000000000000000000000, <------ 10**30 == 10**(18 + 18 - 6)
         # ]
 
-        self.rates = tuple(
+        self.rate_multipliers = tuple(
             [10 ** (2 * self.PRECISION_DECIMALS - token.decimals) for token in self.tokens]
         )
+        self.precision_multipliers = [
+            10 ** (self.PRECISION_DECIMALS - token.decimals) for token in self.tokens
+        ]
 
         if name is not None:  # pragma: no cover
             self.name = name
@@ -276,7 +291,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             abi=self.abi,
         )
 
-    def _get_dy(self, i: int, j: int, dx: int, dynamic_fee: bool = False) -> int:
+    def _get_dy(self, i: int, j: int, dx: int) -> int:
         """
         @notice Calculate the current output dy given input dx
         @dev Index values can be found via the `coins` public getter method
@@ -300,7 +315,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 )
 
         if self.address in ("0x3Fb78e61784C9c637D560eDE23Ad57CA1294c14a",):
-            rates = self.rates
             live_balances = [token.get_balance(self.address) for token in self.tokens]
             admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call()[
                 : len(self.tokens)
@@ -309,6 +323,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 pool_balance - admin_balance
                 for pool_balance, admin_balance in zip(live_balances, admin_balances)
             ]
+            rates = self.rate_multipliers
             xp = self._xp_mem(rates, balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y_with_A_precision(i, j, x, xp)
@@ -326,8 +341,11 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0xBa3436Fd341F2C8A928452Db3C5A3670d1d5Cc73",
             "0xfC8c34a3B3CFE1F1Dd6DBCCEC4BC5d3103b80FF0",
             "0x4424b4A37ba0088D8a718b8fc2aB7952C7e695F5",
+            "0x857110B5f8eFD66CC3762abb935315630AC770B5",
+            "0x21B45B2c1C53fDFe378Ed1955E8Cc29aE8cE0132",
+            "0x602a9Abb10582768Fd8a9f13aD6316Ac2A5A2e2B",
         ):
-            rates = self.rates
+            rates = self.rate_multipliers
             xp = self._xp_mem(rates, self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
@@ -335,7 +353,10 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - fee) * self.PRECISION // rates[j]
 
-        elif self.address in ("0x48fF31bBbD8Ab553Ebe7cBD84e1eA3dBa8f54957",):
+        elif self.address in (
+            "0x48fF31bBbD8Ab553Ebe7cBD84e1eA3dBa8f54957",
+            "0x320B564Fb9CF36933eC507a846ce230008631fd3",
+        ):
             xp = self.balances
             x = xp[i] + dx
             y = self._get_y_with_A_precision(i, j, x, xp)
@@ -344,8 +365,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             return dy - fee
 
         elif self.address in ("0x59Ab5a5b5d617E478a2479B0cAD80DA7e2831492",):
-            rates = self._stored_rates()  # TODO: write this oracle lookup
-
             live_balances = [token.get_balance(self.address) for token in self.tokens]
             admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call()[
                 : len(self.tokens)
@@ -354,10 +373,30 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 pool_balance - admin_balance
                 for pool_balance, admin_balance in zip(live_balances, admin_balances)
             ]
+            rates = self._stored_rates_from_oracle()
             xp = self._xp_mem(rates, self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y_with_A_precision(i, j, x, xp)
             dy = xp[j] - y - 1
+            fee = self.fee * dy // self.FEE_DENOMINATOR
+            return (dy - fee) * self.PRECISION // rates[j]
+
+        elif self.address in ("0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27",):
+            rates = self._stored_rates_from_ytokens()
+            print(f"{rates=}")
+            xp = self._xp_mem(rates, self.balances)
+            x = xp[i] + (dx * rates[i] // self.PRECISION)
+            y = self._get_y(i, j, x, xp)
+            dy = (xp[j] - y) * self.PRECISION // rates[j]
+            fee = self.fee * dy // self.FEE_DENOMINATOR
+            return dy - fee
+
+        elif self.address in ("0xA96A65c051bF88B4095Ee1f2451C2A9d43F53Ae2",):
+            rates = self._stored_rates_from_token1_ratio()
+            xp = self._xp_mem(rates, self.balances)
+            x = xp[i] + (dx * rates[i] // self.PRECISION)
+            y = self._get_y_with_A_precision(i, j, x, xp)
+            dy = xp[j] - y
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - fee) * self.PRECISION // rates[j]
 
@@ -372,7 +411,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 y = self._get_y_with_A_precision(i, j, x, xp)
             else:
                 _rates = [
-                    self.rates[0],
+                    self.rate_multipliers[0],
                     self.base_pool._w3_contract.functions.get_virtual_price().call(),
                 ]
                 xp = self._xp_mem(rates=_rates)
@@ -383,60 +422,87 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             _fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - _fee) * self.PRECISION // _rates[j]
 
+        elif self.address in (
+            # dynamic fee pools
+            "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE",
+        ):
+            live_balances = [token.get_balance(self.address) for token in self.tokens]
+            admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call()[
+                : len(self.tokens)
+            ]
+            balances = [
+                pool_balance - admin_balance
+                for pool_balance, admin_balance in zip(live_balances, admin_balances)
+            ]
+
+            precisions = self.precision_multipliers
+            assert precisions == [1, 1000000000000, 1000000000000]
+            xp = [balance * rate for balance, rate in zip(balances, precisions)]
+
+            x = xp[i] + dx * precisions[i]
+            y = self._get_y_with_A_precision(i, j, x, xp)
+            dy = (xp[j] - y) // precisions[j]
+
+            _fee = (
+                _dynamic_fee(
+                    xpi=(xp[i] + x) // 2,
+                    xpj=(xp[j] + y) // 2,
+                    _fee=self.fee,
+                    _feemul=self.offpeg_fee_multiplier,
+                )
+                * dy
+                // self.FEE_DENOMINATOR
+            )
+            return dy - _fee
+
         # dx and dy in c-units
-        rates = self.rates
+        rates = self.rate_multipliers
         xp = self._xp_mem()
 
         x = xp[i] + (dx * rates[i] // self.PRECISION)
         y = self._get_y(i, j, x, xp)
         dy = (xp[j] - y - 1) * self.PRECISION // rates[j]
 
-        if dynamic_fee:
-            dy = (xp[j] - y) * self.PRECISION // rates[j]
-            import ujson
-
-            offpeg_fee_multiplier = (
-                self._w3_contract.w3.eth.contract(
-                    address=self.address,
-                    abi=ujson.loads(
-                        """
-                [{"name":"TokenExchange","inputs":[{"type":"address","name":"buyer","indexed":true},{"type":"int128","name":"sold_id","indexed":false},{"type":"uint256","name":"tokens_sold","indexed":false},{"type":"int128","name":"bought_id","indexed":false},{"type":"uint256","name":"tokens_bought","indexed":false}],"anonymous":false,"type":"event"},{"name":"TokenExchangeUnderlying","inputs":[{"type":"address","name":"buyer","indexed":true},{"type":"int128","name":"sold_id","indexed":false},{"type":"uint256","name":"tokens_sold","indexed":false},{"type":"int128","name":"bought_id","indexed":false},{"type":"uint256","name":"tokens_bought","indexed":false}],"anonymous":false,"type":"event"},{"name":"AddLiquidity","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256[3]","name":"token_amounts","indexed":false},{"type":"uint256[3]","name":"fees","indexed":false},{"type":"uint256","name":"invariant","indexed":false},{"type":"uint256","name":"token_supply","indexed":false}],"anonymous":false,"type":"event"},{"name":"RemoveLiquidity","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256[3]","name":"token_amounts","indexed":false},{"type":"uint256[3]","name":"fees","indexed":false},{"type":"uint256","name":"token_supply","indexed":false}],"anonymous":false,"type":"event"},{"name":"RemoveLiquidityOne","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256","name":"token_amount","indexed":false},{"type":"uint256","name":"coin_amount","indexed":false}],"anonymous":false,"type":"event"},{"name":"RemoveLiquidityImbalance","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256[3]","name":"token_amounts","indexed":false},{"type":"uint256[3]","name":"fees","indexed":false},{"type":"uint256","name":"invariant","indexed":false},{"type":"uint256","name":"token_supply","indexed":false}],"anonymous":false,"type":"event"},{"name":"CommitNewAdmin","inputs":[{"type":"uint256","name":"deadline","indexed":true},{"type":"address","name":"admin","indexed":true}],"anonymous":false,"type":"event"},{"name":"NewAdmin","inputs":[{"type":"address","name":"admin","indexed":true}],"anonymous":false,"type":"event"},{"name":"CommitNewFee","inputs":[{"type":"uint256","name":"deadline","indexed":true},{"type":"uint256","name":"fee","indexed":false},{"type":"uint256","name":"admin_fee","indexed":false},{"type":"uint256","name":"offpeg_fee_multiplier","indexed":false}],"anonymous":false,"type":"event"},{"name":"NewFee","inputs":[{"type":"uint256","name":"fee","indexed":false},{"type":"uint256","name":"admin_fee","indexed":false},{"type":"uint256","name":"offpeg_fee_multiplier","indexed":false}],"anonymous":false,"type":"event"},{"name":"RampA","inputs":[{"type":"uint256","name":"old_A","indexed":false},{"type":"uint256","name":"new_A","indexed":false},{"type":"uint256","name":"initial_time","indexed":false},{"type":"uint256","name":"future_time","indexed":false}],"anonymous":false,"type":"event"},{"name":"StopRampA","inputs":[{"type":"uint256","name":"A","indexed":false},{"type":"uint256","name":"t","indexed":false}],"anonymous":false,"type":"event"},{"outputs":[],"inputs":[{"type":"address[3]","name":"_coins"},{"type":"address[3]","name":"_underlying_coins"},{"type":"address","name":"_pool_token"},{"type":"address","name":"_aave_lending_pool"},{"type":"uint256","name":"_A"},{"type":"uint256","name":"_fee"},{"type":"uint256","name":"_admin_fee"},{"type":"uint256","name":"_offpeg_fee_multiplier"}],"stateMutability":"nonpayable","type":"constructor"},{"name":"A","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":5199},{"name":"A_precise","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":5161},{"name":"dynamic_fee","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"}],"stateMutability":"view","type":"function","gas":10278},{"name":"balances","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"i"}],"stateMutability":"view","type":"function","gas":2731},{"name":"get_virtual_price","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2680120},{"name":"calc_token_amount","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"bool","name":"is_deposit"}],"stateMutability":"view","type":"function","gas":5346581},{"name":"add_liquidity","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_min_mint_amount"}],"stateMutability":"nonpayable","type":"function"},{"name":"add_liquidity","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_min_mint_amount"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"get_dy","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"}],"stateMutability":"view","type":"function","gas":6239547},{"name":"get_dy_underlying","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"}],"stateMutability":"view","type":"function","gas":6239577},{"name":"exchange","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"},{"type":"uint256","name":"min_dy"}],"stateMutability":"nonpayable","type":"function","gas":6361682},{"name":"exchange_underlying","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"},{"type":"uint256","name":"min_dy"}],"stateMutability":"nonpayable","type":"function","gas":6369753},{"name":"remove_liquidity","outputs":[{"type":"uint256[3]","name":""}],"inputs":[{"type":"uint256","name":"_amount"},{"type":"uint256[3]","name":"_min_amounts"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity","outputs":[{"type":"uint256[3]","name":""}],"inputs":[{"type":"uint256","name":"_amount"},{"type":"uint256[3]","name":"_min_amounts"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity_imbalance","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_max_burn_amount"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity_imbalance","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_max_burn_amount"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"calc_withdraw_one_coin","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"_token_amount"},{"type":"int128","name":"i"}],"stateMutability":"view","type":"function","gas":4449067},{"name":"remove_liquidity_one_coin","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"_token_amount"},{"type":"int128","name":"i"},{"type":"uint256","name":"_min_amount"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity_one_coin","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"_token_amount"},{"type":"int128","name":"i"},{"type":"uint256","name":"_min_amount"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"ramp_A","outputs":[],"inputs":[{"type":"uint256","name":"_future_A"},{"type":"uint256","name":"_future_time"}],"stateMutability":"nonpayable","type":"function","gas":151954},{"name":"stop_ramp_A","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":148715},{"name":"commit_new_fee","outputs":[],"inputs":[{"type":"uint256","name":"new_fee"},{"type":"uint256","name":"new_admin_fee"},{"type":"uint256","name":"new_offpeg_fee_multiplier"}],"stateMutability":"nonpayable","type":"function","gas":146482},{"name":"apply_new_fee","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":133744},{"name":"revert_new_parameters","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":21985},{"name":"commit_transfer_ownership","outputs":[],"inputs":[{"type":"address","name":"_owner"}],"stateMutability":"nonpayable","type":"function","gas":74723},{"name":"apply_transfer_ownership","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":60800},{"name":"revert_transfer_ownership","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":22075},{"name":"withdraw_admin_fees","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":71651},{"name":"donate_admin_fees","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":62276},{"name":"kill_me","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":38058},{"name":"unkill_me","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":22195},{"name":"set_aave_referral","outputs":[],"inputs":[{"type":"uint256","name":"referral_code"}],"stateMutability":"nonpayable","type":"function","gas":37325},{"name":"coins","outputs":[{"type":"address","name":""}],"inputs":[{"type":"uint256","name":"arg0"}],"stateMutability":"view","type":"function","gas":2310},{"name":"underlying_coins","outputs":[{"type":"address","name":""}],"inputs":[{"type":"uint256","name":"arg0"}],"stateMutability":"view","type":"function","gas":2340},{"name":"admin_balances","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"arg0"}],"stateMutability":"view","type":"function","gas":2370},{"name":"fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2291},{"name":"offpeg_fee_multiplier","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2321},{"name":"admin_fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2351},{"name":"owner","outputs":[{"type":"address","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2381},{"name":"lp_token","outputs":[{"type":"address","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2411},{"name":"initial_A","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2441},{"name":"future_A","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2471},{"name":"initial_A_time","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2501},{"name":"future_A_time","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2531},{"name":"admin_actions_deadline","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2561},{"name":"transfer_ownership_deadline","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2591},{"name":"future_fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2621},{"name":"future_admin_fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2651},{"name":"future_offpeg_fee_multiplier","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2681},{"name":"future_owner","outputs":[{"type":"address","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2711}]
-                """
-                    ),
-                )
-                .functions.offpeg_fee_multiplier()
-                .call()
-            )
-            print(f"{offpeg_fee_multiplier=}")
-            dyn_fee = _dynamic_fee(
-                (xp[i] + x) // 2, (xp[j] + y) // 2, self.fee, offpeg_fee_multiplier
-            )
-            _fee = dyn_fee * dy // self.FEE_DENOMINATOR
-
-            contract_fee = (
-                self._w3_contract.w3.eth.contract(
-                    address=self.address,
-                    abi=ujson.loads(
-                        """
-                [{"name":"TokenExchange","inputs":[{"type":"address","name":"buyer","indexed":true},{"type":"int128","name":"sold_id","indexed":false},{"type":"uint256","name":"tokens_sold","indexed":false},{"type":"int128","name":"bought_id","indexed":false},{"type":"uint256","name":"tokens_bought","indexed":false}],"anonymous":false,"type":"event"},{"name":"TokenExchangeUnderlying","inputs":[{"type":"address","name":"buyer","indexed":true},{"type":"int128","name":"sold_id","indexed":false},{"type":"uint256","name":"tokens_sold","indexed":false},{"type":"int128","name":"bought_id","indexed":false},{"type":"uint256","name":"tokens_bought","indexed":false}],"anonymous":false,"type":"event"},{"name":"AddLiquidity","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256[3]","name":"token_amounts","indexed":false},{"type":"uint256[3]","name":"fees","indexed":false},{"type":"uint256","name":"invariant","indexed":false},{"type":"uint256","name":"token_supply","indexed":false}],"anonymous":false,"type":"event"},{"name":"RemoveLiquidity","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256[3]","name":"token_amounts","indexed":false},{"type":"uint256[3]","name":"fees","indexed":false},{"type":"uint256","name":"token_supply","indexed":false}],"anonymous":false,"type":"event"},{"name":"RemoveLiquidityOne","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256","name":"token_amount","indexed":false},{"type":"uint256","name":"coin_amount","indexed":false}],"anonymous":false,"type":"event"},{"name":"RemoveLiquidityImbalance","inputs":[{"type":"address","name":"provider","indexed":true},{"type":"uint256[3]","name":"token_amounts","indexed":false},{"type":"uint256[3]","name":"fees","indexed":false},{"type":"uint256","name":"invariant","indexed":false},{"type":"uint256","name":"token_supply","indexed":false}],"anonymous":false,"type":"event"},{"name":"CommitNewAdmin","inputs":[{"type":"uint256","name":"deadline","indexed":true},{"type":"address","name":"admin","indexed":true}],"anonymous":false,"type":"event"},{"name":"NewAdmin","inputs":[{"type":"address","name":"admin","indexed":true}],"anonymous":false,"type":"event"},{"name":"CommitNewFee","inputs":[{"type":"uint256","name":"deadline","indexed":true},{"type":"uint256","name":"fee","indexed":false},{"type":"uint256","name":"admin_fee","indexed":false},{"type":"uint256","name":"offpeg_fee_multiplier","indexed":false}],"anonymous":false,"type":"event"},{"name":"NewFee","inputs":[{"type":"uint256","name":"fee","indexed":false},{"type":"uint256","name":"admin_fee","indexed":false},{"type":"uint256","name":"offpeg_fee_multiplier","indexed":false}],"anonymous":false,"type":"event"},{"name":"RampA","inputs":[{"type":"uint256","name":"old_A","indexed":false},{"type":"uint256","name":"new_A","indexed":false},{"type":"uint256","name":"initial_time","indexed":false},{"type":"uint256","name":"future_time","indexed":false}],"anonymous":false,"type":"event"},{"name":"StopRampA","inputs":[{"type":"uint256","name":"A","indexed":false},{"type":"uint256","name":"t","indexed":false}],"anonymous":false,"type":"event"},{"outputs":[],"inputs":[{"type":"address[3]","name":"_coins"},{"type":"address[3]","name":"_underlying_coins"},{"type":"address","name":"_pool_token"},{"type":"address","name":"_aave_lending_pool"},{"type":"uint256","name":"_A"},{"type":"uint256","name":"_fee"},{"type":"uint256","name":"_admin_fee"},{"type":"uint256","name":"_offpeg_fee_multiplier"}],"stateMutability":"nonpayable","type":"constructor"},{"name":"A","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":5199},{"name":"A_precise","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":5161},{"name":"dynamic_fee","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"}],"stateMutability":"view","type":"function","gas":10278},{"name":"balances","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"i"}],"stateMutability":"view","type":"function","gas":2731},{"name":"get_virtual_price","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2680120},{"name":"calc_token_amount","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"bool","name":"is_deposit"}],"stateMutability":"view","type":"function","gas":5346581},{"name":"add_liquidity","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_min_mint_amount"}],"stateMutability":"nonpayable","type":"function"},{"name":"add_liquidity","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_min_mint_amount"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"get_dy","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"}],"stateMutability":"view","type":"function","gas":6239547},{"name":"get_dy_underlying","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"}],"stateMutability":"view","type":"function","gas":6239577},{"name":"exchange","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"},{"type":"uint256","name":"min_dy"}],"stateMutability":"nonpayable","type":"function","gas":6361682},{"name":"exchange_underlying","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"int128","name":"i"},{"type":"int128","name":"j"},{"type":"uint256","name":"dx"},{"type":"uint256","name":"min_dy"}],"stateMutability":"nonpayable","type":"function","gas":6369753},{"name":"remove_liquidity","outputs":[{"type":"uint256[3]","name":""}],"inputs":[{"type":"uint256","name":"_amount"},{"type":"uint256[3]","name":"_min_amounts"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity","outputs":[{"type":"uint256[3]","name":""}],"inputs":[{"type":"uint256","name":"_amount"},{"type":"uint256[3]","name":"_min_amounts"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity_imbalance","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_max_burn_amount"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity_imbalance","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256[3]","name":"_amounts"},{"type":"uint256","name":"_max_burn_amount"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"calc_withdraw_one_coin","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"_token_amount"},{"type":"int128","name":"i"}],"stateMutability":"view","type":"function","gas":4449067},{"name":"remove_liquidity_one_coin","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"_token_amount"},{"type":"int128","name":"i"},{"type":"uint256","name":"_min_amount"}],"stateMutability":"nonpayable","type":"function"},{"name":"remove_liquidity_one_coin","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"_token_amount"},{"type":"int128","name":"i"},{"type":"uint256","name":"_min_amount"},{"type":"bool","name":"_use_underlying"}],"stateMutability":"nonpayable","type":"function"},{"name":"ramp_A","outputs":[],"inputs":[{"type":"uint256","name":"_future_A"},{"type":"uint256","name":"_future_time"}],"stateMutability":"nonpayable","type":"function","gas":151954},{"name":"stop_ramp_A","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":148715},{"name":"commit_new_fee","outputs":[],"inputs":[{"type":"uint256","name":"new_fee"},{"type":"uint256","name":"new_admin_fee"},{"type":"uint256","name":"new_offpeg_fee_multiplier"}],"stateMutability":"nonpayable","type":"function","gas":146482},{"name":"apply_new_fee","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":133744},{"name":"revert_new_parameters","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":21985},{"name":"commit_transfer_ownership","outputs":[],"inputs":[{"type":"address","name":"_owner"}],"stateMutability":"nonpayable","type":"function","gas":74723},{"name":"apply_transfer_ownership","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":60800},{"name":"revert_transfer_ownership","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":22075},{"name":"withdraw_admin_fees","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":71651},{"name":"donate_admin_fees","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":62276},{"name":"kill_me","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":38058},{"name":"unkill_me","outputs":[],"inputs":[],"stateMutability":"nonpayable","type":"function","gas":22195},{"name":"set_aave_referral","outputs":[],"inputs":[{"type":"uint256","name":"referral_code"}],"stateMutability":"nonpayable","type":"function","gas":37325},{"name":"coins","outputs":[{"type":"address","name":""}],"inputs":[{"type":"uint256","name":"arg0"}],"stateMutability":"view","type":"function","gas":2310},{"name":"underlying_coins","outputs":[{"type":"address","name":""}],"inputs":[{"type":"uint256","name":"arg0"}],"stateMutability":"view","type":"function","gas":2340},{"name":"admin_balances","outputs":[{"type":"uint256","name":""}],"inputs":[{"type":"uint256","name":"arg0"}],"stateMutability":"view","type":"function","gas":2370},{"name":"fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2291},{"name":"offpeg_fee_multiplier","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2321},{"name":"admin_fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2351},{"name":"owner","outputs":[{"type":"address","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2381},{"name":"lp_token","outputs":[{"type":"address","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2411},{"name":"initial_A","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2441},{"name":"future_A","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2471},{"name":"initial_A_time","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2501},{"name":"future_A_time","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2531},{"name":"admin_actions_deadline","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2561},{"name":"transfer_ownership_deadline","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2591},{"name":"future_fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2621},{"name":"future_admin_fee","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2651},{"name":"future_offpeg_fee_multiplier","outputs":[{"type":"uint256","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2681},{"name":"future_owner","outputs":[{"type":"address","name":""}],"inputs":[],"stateMutability":"view","type":"function","gas":2711}]
-                """
-                    ),
-                )
-                .functions.dynamic_fee(i, j)
-                .call()
-            )
-            # compare calculated dynamic fee to contract fee
-            assert dyn_fee == contract_fee, f"{dyn_fee=} != {contract_fee=}"
-        else:
-            _fee = self.fee * dy // self.FEE_DENOMINATOR
+        _fee = self.fee * dy // self.FEE_DENOMINATOR
 
         return dy - _fee
 
-    def _stored_rates(self):
+    def _stored_rates_from_ytokens(self):
+        # ref: https://etherscan.io/address/0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27#code
+        prices_per_share = [
+            int.from_bytes(
+                config.get_web3().eth.call(
+                    {
+                        "to": HexBytes(token.address),
+                        "data": Web3.keccak(text="getPricePerFullShare()"),
+                    }
+                )
+            )
+            for token in self.tokens
+        ]
+        precision_multipliers = self.precision_multipliers
+        return [
+            multiplier * price_per_share
+            for multiplier, price_per_share in zip(precision_multipliers, prices_per_share)
+        ]
+
+    def _stored_rates_from_token1_ratio(self):
+        # ref: https://etherscan.io/address/0xA96A65c051bF88B4095Ee1f2451C2A9d43F53Ae2#code
+        aeth_ratio = int.from_bytes(
+            config.get_web3().eth.call(
+                {"to": HexBytes(self.tokens[1].address), "data": Web3.keccak(text="ratio()")}
+            )
+        )
+        return [
+            self.PRECISION,
+            self.PRECISION * self.LENDING_PRECISION // aeth_ratio,
+        ]
+
+    def _stored_rates_from_oracle(self):
         # ref: https://etherscan.io/address/0x59Ab5a5b5d617E478a2479B0cAD80DA7e2831492#code
         ORACLE_BIT_MASK = (2**32 - 1) * 256**28
 
-        rates = self.rates
+        rates = self.rate_multipliers
         oracle = self.oracle_method
 
         if oracle != 0:
@@ -484,37 +550,75 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         assert i >= 0
         assert i < N_COINS
 
-        amp = self._A() if _amp is None else _amp
-        D = self._get_D(xp, amp) if _D is None else _D
-        c = D
-        Ann = amp * N_COINS
+        if self.address == "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27":
+            if _amp is None:
+                _amp = self.a_coefficient
 
-        S_ = 0
-        _x = 0
-        for _i in range(N_COINS):
-            if _i == i:
-                _x = x
-            elif _i != j:
-                _x = xp[_i]
-            else:
-                continue
-            S_ += _x
-            c = c * D // (_x * N_COINS)
+            assert (i != j) and (i >= 0) and (j >= 0) and (i < N_COINS) and (j < N_COINS)
 
-        c = c * D // (Ann * N_COINS)
-        b = S_ + D // Ann  # - D
-        y = D
-        for _ in range(255):
-            y_prev = y
-            y = (y * y + c) // (2 * y + b - D)
-            # Equality with the precision of 1
-            if y > y_prev:
-                if y - y_prev <= 1:
-                    break
-            else:
-                if y_prev - y <= 1:
-                    break
-        return y
+            D = self._get_D(xp)
+            c = D
+            S_ = 0
+            Ann = _amp * N_COINS
+
+            _x = 0
+            for _i in range(N_COINS):
+                if _i == i:
+                    _x = x
+                elif _i != j:
+                    _x = xp[_i]
+                else:
+                    continue
+                S_ += _x
+                c = c * D // (_x * N_COINS)
+            c = c * D // (Ann * N_COINS)
+            b = S_ + D // Ann  # - D
+            y_prev = 0
+            y = D
+            for _ in range(255):
+                y_prev = y
+                y = (y * y + c) // (2 * y + b - D)
+                # Equality with the precision of 1
+                if y > y_prev:
+                    if y - y_prev <= 1:
+                        break
+                else:
+                    if y_prev - y <= 1:
+                        break
+            return y
+
+        else:
+            amp = self._A() if _amp is None else _amp
+            D = self._get_D(xp, amp) if _D is None else _D
+            c = D
+            Ann = amp * N_COINS
+
+            S_ = 0
+            _x = 0
+            for _i in range(N_COINS):
+                if _i == i:
+                    _x = x
+                elif _i != j:
+                    _x = xp[_i]
+                else:
+                    continue
+                S_ += _x
+                c = c * D // (_x * N_COINS)
+
+            c = c * D // (Ann * N_COINS)
+            b = S_ + D // Ann  # - D
+            y = D
+            for _ in range(255):
+                y_prev = y
+                y = (y * y + c) // (2 * y + b - D)
+                # Equality with the precision of 1
+                if y > y_prev:
+                    if y - y_prev <= 1:
+                        break
+                else:
+                    if y_prev - y <= 1:
+                        break
+            return y
 
     def _get_y_with_A_precision(
         self,
@@ -585,7 +689,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         self, rates: Optional[List[int]] = None, balances: Optional[List[int]] = None
     ) -> List[int]:
         if rates is None:
-            rates = self.rates
+            rates = self.rate_multipliers
         if balances is None:
             balances = self.balances
 
@@ -655,7 +759,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         else:  # when t1 == 0 or timestamp >= t1
             return A1
 
-    def _get_D(self, xp: List[int], amp: int) -> int:
+    def _get_D(self, xp: List[int], amp: Optional[int] = None) -> int:
         if any([x == 0 for x in xp]):
             zero_liquidity_tokens = [
                 self.tokens[token_index]
@@ -666,37 +770,62 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         N_COINS = len(self.tokens)
 
-        S = sum(xp)
-        if S == 0:
-            return 0
+        if self.address == "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27":
+            if amp is None:
+                amp = self.a_coefficient
 
-        Dprev = 0
-        D = S
-        Ann = amp * N_COINS
-
-        for _ in range(255):
-            D_P = D
+            S = 0
             for _x in xp:
-                D_P = D_P * D // (_x * N_COINS)
-            Dprev = D
-            D = (Ann * S + D_P * N_COINS) * D // ((Ann - 1) * D + (N_COINS + 1) * D_P)
-            # Equality with the precision of 1
-            if D > Dprev:
-                if D - Dprev <= 1:
-                    return D
-            else:
-                if Dprev - D <= 1:
-                    return D
+                S += _x
+            if S == 0:
+                return 0
 
-        raise EVMRevertError("get_D did not converge!")
+            Dprev = 0
+            D = S
+            Ann = amp * N_COINS
+            for _ in range(255):
+                D_P = D
+                for _x in xp:
+                    D_P = D_P * D // (_x * N_COINS + 1)  # +1 is to prevent /0
+                Dprev = D
+                D = (Ann * S + D_P * N_COINS) * D // ((Ann - 1) * D + (N_COINS + 1) * D_P)
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        break
+                else:
+                    if Dprev - D <= 1:
+                        break
+            return D
+        else:
+            S = sum(xp)
+            if S == 0:
+                return 0
+
+            Dprev = 0
+            D = S
+            Ann = amp * N_COINS
+
+            for _ in range(255):
+                D_P = D
+                for _x in xp:
+                    D_P = D_P * D // (_x * N_COINS)
+                Dprev = D
+                D = (Ann * S + D_P * N_COINS) * D // ((Ann - 1) * D + (N_COINS + 1) * D_P)
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+
+            raise EVMRevertError("get_D did not converge!")
 
     def _get_D_with_A_precision(self, _xp: List[int], _amp: int) -> int:
         N_COINS = len(self.tokens)
 
         if self.address in ("0xC61557C5d177bd7DC889A3b621eEC333e168f68A",):
-            print(f"{_xp=}")
-            print(f"{_amp=}")
-
             S = 0
             Dprev = 0
             for x in _xp:
@@ -728,6 +857,38 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             # convergence typically occurs in 4 rounds or less, this should be unreachable!
             # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
             raise
+        elif self.address in ("0xDeBF20617708857ebe4F679508E7b7863a8A8EeE",):
+            S = 0
+
+            for _x in _xp:
+                S += _x
+            if S == 0:
+                return 0
+
+            Dprev = 0
+            D = S
+            Ann = _amp * N_COINS
+            for _i in range(255):
+                D_P = D
+                for _x in _xp:
+                    D_P = D_P * D // (_x * N_COINS + 1)  # +1 is to prevent /0
+                Dprev = D
+                D = (
+                    (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                    * D
+                    // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+                )
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+            # convergence typically occurs in 4 rounds or less, this should be unreachable!
+            # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
+            raise
+
         else:
             S = sum(_xp)
             if S == 0:
@@ -773,7 +934,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         token_out: Erc20Token,
         token_in_quantity: int,
         override_state: Optional[CurveStableswapPoolState] = None,
-        dynamic_fee: bool = False,
     ) -> int:
         """
         Calculates the expected token OUTPUT for a target INPUT at current pool reserves.
@@ -790,5 +950,4 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             i=self.tokens.index(token_in),
             j=self.tokens.index(token_out),
             dx=token_in_quantity,
-            dynamic_fee=dynamic_fee,
         )
