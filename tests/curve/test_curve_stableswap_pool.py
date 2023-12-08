@@ -4,6 +4,7 @@ import degenbot
 import pytest
 import ujson
 from degenbot.curve.abi import CURVE_V1_FACTORY_ABI
+from degenbot.exceptions import ZeroLiquidityError
 from degenbot.curve.curve_stableswap_liquidity_pool import (
     BrokenPool,
     CurveStableswapPool,
@@ -61,7 +62,7 @@ def _test_calculations(lp: CurveStableswapPool):
                 # Skip empty pools
                 continue
 
-            print(f"Swapping {amount} {token_in} for {token_out}")
+            print(f"Simulating swap: {amount} {token_in} for {token_out}")
 
             if lp.address == "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE":
                 dynamic_fee = True
@@ -131,15 +132,11 @@ def test_base_registry_pools(local_web3_ethereum_full: Web3, metaregistry: Contr
 def test_single_pool(local_web3_ethereum_archive: Web3, metaregistry: Contract):
     degenbot.set_web3(local_web3_ethereum_archive)
 
-    POOL_ADDRESS = "0x84997FAFC913f1613F51Bb0E2b5854222900514B"
+    POOL_ADDRESS = "0x59Ab5a5b5d617E478a2479B0cAD80DA7e2831492"
 
-    try:
-        lp = CurveStableswapPool(address=POOL_ADDRESS)
-    except BrokenPool:
-        pass
-    else:
-        _test_balances(lp, metaregistry)
-        _test_calculations(lp)
+    lp = CurveStableswapPool(address=POOL_ADDRESS)
+    _test_balances(lp, metaregistry)
+    _test_calculations(lp)
 
 
 def test_factory_stableswap_pools(local_web3_ethereum_full: Web3, metaregistry: Contract):
@@ -161,14 +158,13 @@ def test_factory_stableswap_pools(local_web3_ethereum_full: Web3, metaregistry: 
 
         try:
             lp = CurveStableswapPool(address=pool_address)
+            _test_balances(lp, metaregistry)
+            _test_calculations(lp)
+        except (BrokenPool, ZeroLiquidityError):
+            continue
         except Exception:
             print(f"Cannot build pool {pool_address}")
             raise
-        except BrokenPool:
-            pass
-        else:
-            _test_balances(lp, metaregistry)
-            _test_calculations(lp)
 
 
 def test_all_registered_pools(local_web3_ethereum_full: Web3, metaregistry: Contract):

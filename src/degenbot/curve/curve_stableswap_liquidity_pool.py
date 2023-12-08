@@ -18,6 +18,7 @@ from ..exceptions import (
     NoPoolStateAvailable,
     ZeroSwapError,
     EVMRevertError,
+    ZeroLiquidityError,
 )
 from ..logging import logger
 from ..manager import Erc20TokenHelperManager
@@ -28,16 +29,19 @@ from .curve_stableswap_dataclasses import (
     CurveStableswapPoolSimulationResult,
     CurveStableswapPoolState,
 )
+from hexbytes import HexBytes
+from web3 import Web3
 
 CURVE_REGISTRY_ADDRESS = "0x90E00ACe148ca3b23Ac1bC8C240C2a7Dd9c2d7f5"
 CURVE_METAREGISTRY_ADDRESS = "0xF98B45FA17DE75FB1aD0e7aFD971b0ca00e379fC"
 CURVE_V1_FACTORY_ADDRESS = "0x127db66E7F0b16470Bec194d0f496F9Fa065d0A9"
 
-BROKEN_POOLS = [
+BROKEN_POOLS = (
     "0x1F71f05CF491595652378Fe94B7820344A551B8E",
     "0xD652c40fBb3f06d6B58Cb9aa9CFF063eE63d465D",
     "0x28B0Cf1baFB707F2c6826d10caf6DD901a6540C5",
-]
+    "0x84997FAFC913f1613F51Bb0E2b5854222900514B",
+)
 
 
 class BrokenPool(LiquidityPoolError):
@@ -116,6 +120,17 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         _w3 = config.get_web3()
         _w3_contract = self._w3_contract
 
+        if self.address == "0x59Ab5a5b5d617E478a2479B0cAD80DA7e2831492":
+            self.oracle_method = int.from_bytes(
+                _w3.eth.call(
+                    {
+                        "to": self.address,
+                        "data": HexBytes(Web3.keccak(text="oracle_method()"))[:4],
+                    }
+                ),
+                byteorder="big",
+            )
+
         # _w3_factory_contract: Contract = _w3.eth.contract(
         #     address=CURVE_V1_FACTORY_ADDRESS, abi=CURVE_V1_FACTORY_ABI
         # )
@@ -143,7 +158,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             raise TypeError(f"Pool {self.address} is not a StableSwap Curve pool.")
 
         self.a_coefficient, *_ = pool_params
-        assert self.a_coefficient == _w3_contract.functions.A().call()
         self.future_a_coefficient: Optional[int] = None
         self.future_a_coefficient_time: Optional[int] = None
 
@@ -286,8 +300,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 )
 
         if self.address in ("0x3Fb78e61784C9c637D560eDE23Ad57CA1294c14a",):
-            # TODO: investigate off-by-two compared to basic calc
-
             rates = self.rates
             live_balances = [token.get_balance(self.address) for token in self.tokens]
             admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call()[
@@ -312,6 +324,8 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0xe7A3b38c39F97E977723bd1239C3470702568e7B",
             "0xD7C10449A6D134A9ed37e2922F8474EAc6E5c100",
             "0xBa3436Fd341F2C8A928452Db3C5A3670d1d5Cc73",
+            "0xfC8c34a3B3CFE1F1Dd6DBCCEC4BC5d3103b80FF0",
+            "0x4424b4A37ba0088D8a718b8fc2aB7952C7e695F5",
         ):
             rates = self.rates
             xp = self._xp_mem(rates, self.balances)
@@ -324,23 +338,47 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         elif self.address in ("0x48fF31bBbD8Ab553Ebe7cBD84e1eA3dBa8f54957",):
             xp = self.balances
             x = xp[i] + dx
-            y_prec = self._get_y_with_A_precision(i, j, x, xp)
-            dy_prec = xp[j] - y_prec - 1
-            fee_prec = self.fee * dy_prec // self.FEE_DENOMINATOR
+            y = self._get_y_with_A_precision(i, j, x, xp)
+            dy = xp[j] - y - 1
+            fee = self.fee * dy // self.FEE_DENOMINATOR
+            return dy - fee
 
-            return dy_prec - fee_prec
+        elif self.address in ("0x59Ab5a5b5d617E478a2479B0cAD80DA7e2831492",):
+            rates = self._stored_rates()  # TODO: write this oracle lookup
+
+            live_balances = [token.get_balance(self.address) for token in self.tokens]
+            admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call()[
+                : len(self.tokens)
+            ]
+            balances = [
+                pool_balance - admin_balance
+                for pool_balance, admin_balance in zip(live_balances, admin_balances)
+            ]
+            xp = self._xp_mem(rates, self.balances)
+            x = xp[i] + (dx * rates[i] // self.PRECISION)
+            y = self._get_y_with_A_precision(i, j, x, xp)
+            dy = xp[j] - y - 1
+            fee = self.fee * dy // self.FEE_DENOMINATOR
+            return (dy - fee) * self.PRECISION // rates[j]
 
         elif self.is_metapool:
-            _rates = [
-                self.rates[0],
-                self.base_pool._w3_contract.functions.get_virtual_price().call(),
-            ]
-            xp = self._xp_mem(rates=_rates)
-            x = xp[i] + (dx * _rates[i] // self.PRECISION)
-            if self.address in ("0x84997FAFC913f1613F51Bb0E2b5854222900514B",):
+            if self.address in ("0xC61557C5d177bd7DC889A3b621eEC333e168f68A",):
+                _rates = [
+                    10**self.PRECISION_DECIMALS,
+                    self.base_pool._w3_contract.functions.get_virtual_price().call(),
+                ]
+                xp = self._xp_mem(rates=_rates)
+                x = xp[i] + (dx * _rates[i] // self.PRECISION)
                 y = self._get_y_with_A_precision(i, j, x, xp)
             else:
+                _rates = [
+                    self.rates[0],
+                    self.base_pool._w3_contract.functions.get_virtual_price().call(),
+                ]
+                xp = self._xp_mem(rates=_rates)
+                x = xp[i] + (dx * _rates[i] // self.PRECISION)
                 y = self._get_y(i, j, x, xp)
+
             dy = xp[j] - y - 1
             _fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - _fee) * self.PRECISION // _rates[j]
@@ -394,12 +432,35 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         return dy - _fee
 
+    def _stored_rates(self):
+        # ref: https://etherscan.io/address/0x59Ab5a5b5d617E478a2479B0cAD80DA7e2831492#code
+        ORACLE_BIT_MASK = (2**32 - 1) * 256**28
+
+        rates = self.rates
+        oracle = self.oracle_method
+
+        if oracle != 0:
+            response = config.get_web3().eth.call(
+                {
+                    "to": HexBytes(oracle % 2**160),
+                    "data": oracle & ORACLE_BIT_MASK,
+                }
+            )
+            rates = (
+                rates[0],
+                rates[1] * int.from_bytes(response, byteorder="big") // self.PRECISION,
+            )
+
+        return rates
+
     def _get_y(
         self,
         i: int,
         j: int,
         x: int,
         xp: Iterable[int],
+        _amp: Optional[int] = None,
+        _D: Optional[int] = None,
     ) -> int:
         """
         Calculate x[j] if one makes x[i] = x
@@ -423,8 +484,8 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         assert i >= 0
         assert i < N_COINS
 
-        amp = self._A()
-        D = self._get_D(xp, amp)
+        amp = self._A() if _amp is None else _amp
+        D = self._get_D(xp, amp) if _D is None else _D
         c = D
         Ann = amp * N_COINS
 
@@ -461,6 +522,8 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         j: int,
         x: int,
         xp: Iterable[int],
+        _amp: Optional[int] = None,
+        _D: Optional[int] = None,
     ) -> int:
         """
         Calculate x[j] if one makes x[i] = x
@@ -483,8 +546,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         assert i >= 0
         assert i < N_COINS
 
-        amp = self._A_with_A_precision()
-        D = self._get_D_with_A_precision(xp, amp)
+        amp = self._A_with_A_precision() if _amp is None else _amp
+        D = self._get_D_with_A_precision(xp, amp) if _D is None else _D
+
         S_ = 0
         _x = 0
         y_prev = 0
@@ -592,6 +656,14 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             return A1
 
     def _get_D(self, xp: List[int], amp: int) -> int:
+        if any([x == 0 for x in xp]):
+            zero_liquidity_tokens = [
+                self.tokens[token_index]
+                for token in self.tokens
+                if self.balances[token_index := self.tokens.index(token)] == 0
+            ]
+            raise ZeroLiquidityError(f"Pool has no liquidity for tokens {zero_liquidity_tokens}")
+
         N_COINS = len(self.tokens)
 
         S = sum(xp)
@@ -621,29 +693,65 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
     def _get_D_with_A_precision(self, _xp: List[int], _amp: int) -> int:
         N_COINS = len(self.tokens)
 
-        S = sum(_xp)
-        if S == 0:
-            return 0
+        if self.address in ("0xC61557C5d177bd7DC889A3b621eEC333e168f68A",):
+            print(f"{_xp=}")
+            print(f"{_amp=}")
 
-        D = S
-        Ann = _amp * N_COINS
-        for _ in range(255):
-            D_P = D * D // _xp[0] * D // _xp[1] // (N_COINS**2)
-            Dprev = D
-            D = (
-                (Ann * S // self.A_PRECISION + D_P * N_COINS)
-                * D
-                // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
-            )
-            # Equality with the precision of 1
-            if D > Dprev:
-                if D - Dprev <= 1:
-                    return D
-            else:
-                if Dprev - D <= 1:
-                    return D
-        # convergence typically occurs in 4 rounds or less, this should be unreachable!
-        raise
+            S = 0
+            Dprev = 0
+            for x in _xp:
+                S += x
+            if S == 0:
+                return 0
+
+            D = S
+            Ann = _amp * N_COINS
+            for _ in range(255):
+                D_P = D
+                for x in _xp:
+                    D_P = (
+                        D_P * D // (x * N_COINS)
+                    )  # If division by 0, this will be borked: only withdrawal will work. And that is good
+                Dprev = D
+                D = (
+                    (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                    * D
+                    // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+                )
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+            # convergence typically occurs in 4 rounds or less, this should be unreachable!
+            # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
+            raise
+        else:
+            S = sum(_xp)
+            if S == 0:
+                return 0
+
+            D = S
+            Ann = _amp * N_COINS
+            for _ in range(255):
+                D_P = D * D // _xp[0] * D // _xp[1] // (N_COINS**2)
+                Dprev = D
+                D = (
+                    (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                    * D
+                    // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+                )
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+            # convergence typically occurs in 4 rounds or less, this should be unreachable!
+            raise
 
     @property
     def _w3_contract(self) -> Contract:
