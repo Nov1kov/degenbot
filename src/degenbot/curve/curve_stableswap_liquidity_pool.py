@@ -359,6 +359,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         elif self.address in (
             "0x48fF31bBbD8Ab553Ebe7cBD84e1eA3dBa8f54957",
             "0x320B564Fb9CF36933eC507a846ce230008631fd3",
+            "0x875DF0bA24ccD867f8217593ee27253280772A97",
         ):
             xp = self.balances
             x = xp[i] + dx
