@@ -6,7 +6,7 @@ from eth_utils.address import to_checksum_address
 from hexbytes import HexBytes
 from web3 import Web3
 from web3.contract import Contract
-
+import eth_abi
 from .. import config
 from ..baseclasses import PoolHelper
 from ..constants import ZERO_ADDRESS
@@ -124,6 +124,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             )
 
         if self.address == "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE":
+            self.precision_multipliers = [1, 1000000000000, 1000000000000]
             self.offpeg_fee_multiplier = int.from_bytes(
                 _w3.eth.call(
                     {
@@ -133,9 +134,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 ),
                 byteorder="big",
             )
-
-        if self.address == "0xA2B47E3D5c44877cca798226B7B8118F9BFb7A56":
-            self.USE_LENDING = [True, True]
 
         # _w3_factory_contract: Contract = _w3.eth.contract(
         #     address=CURVE_V1_FACTORY_ADDRESS, abi=CURVE_V1_FACTORY_ABI
@@ -246,9 +244,16 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         )
 
         if self.address == "0xA2B47E3D5c44877cca798226B7B8118F9BFb7A56":
+            self.USE_LENDING = [True, True]
             # TODO: investigate why this isn't 10**10, 10**10
             # since both tokens have 8 decimal places
             self.precision_multipliers = [1, 10**12]
+
+        if self.address == "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE":
+            self.precision_multipliers = [1, 1000000000000, 1000000000000]
+
+        if self.address == "0x2dded6Da1BF5DBdF597C45fcFaa3194e53EcfeAF":
+            self.precision_multipliers = [1, 1000000000000, 1000000000000]
 
         if name is not None:  # pragma: no cover
             self.name = name
@@ -341,6 +346,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x857110B5f8eFD66CC3762abb935315630AC770B5",
             "0x21B45B2c1C53fDFe378Ed1955E8Cc29aE8cE0132",
             "0x602a9Abb10582768Fd8a9f13aD6316Ac2A5A2e2B",
+            "0x0Ce6a5fF5217e38315f87032CF90686C96627CAA",
         ):
             rates = self.rate_multipliers
             xp = self._xp_mem(rates, self.balances)
@@ -385,13 +391,23 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             y = self._get_y(i, j, x, xp)
             dy = (xp[j] - y) * self.PRECISION // rates[j]
             fee = self.fee * dy // self.FEE_DENOMINATOR
+            return dy - fee
+
+        elif self.address in ("0x2dded6Da1BF5DBdF597C45fcFaa3194e53EcfeAF",):
+            assert self.precision_multipliers == [1, 1000000000000, 1000000000000]
+            rates = self._stored_rates_from_cytokens()
+            xp = self._xp_mem(rates)
+            x = xp[i] + (dx * rates[i] // self.PRECISION)
+            y = self._get_y_with_A_precision(i, j, x, xp)
+            dy = xp[j] - y - 1
+
             print(f"{rates=}")
             print(f"{xp=}")
             print(f"{x=}")
             print(f"{y=}")
             print(f"{dy=}")
-            print(f"{fee=}")
-            return dy - fee
+
+            return (dy - (self.fee * dy // self.FEE_DENOMINATOR)) * self.PRECISION // rates[j]
 
         elif self.address in ("0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27",):
             rates = self._stored_rates_from_ytokens()
@@ -536,6 +552,51 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             multiplier * price_per_share
             for multiplier, price_per_share in zip(precision_multipliers, prices_per_share)
         ]
+
+    def _stored_rates_from_cytokens(self):
+        # exchangeRateStored * (1 + supplyRatePerBlock * (getBlockNumber - accrualBlockNumber) / 1e18)
+
+        result = []
+
+        next_block = config.get_web3().eth.get_block_number()
+
+        for coin, precision_multiplier in zip(self.tokens, self.precision_multipliers):
+            rate, *_ = eth_abi.decode(
+                data=(
+                    config.get_web3().eth.call(
+                        {
+                            "to": HexBytes(coin.address),
+                            "data": Web3.keccak(text="exchangeRateStored()"),
+                        }
+                    )
+                ),
+                types=["uint256"],
+            )
+            supply_rate, *_ = eth_abi.decode(
+                data=config.get_web3().eth.call(
+                    {
+                        "to": HexBytes(coin.address),
+                        "data": Web3.keccak(text="supplyRatePerBlock()"),
+                    }
+                ),
+                types=["uint256"],
+            )
+            old_block, *_ = eth_abi.decode(
+                data=config.get_web3().eth.call(
+                    {
+                        "to": HexBytes(coin.address),
+                        "data": Web3.keccak(text="accrualBlockNumber()"),
+                    }
+                ),
+                types=["uint256"],
+            )
+
+            rate += rate * supply_rate * (next_block - old_block) // self.PRECISION
+
+            result.append(precision_multiplier * rate)
+
+        print(f"{result=}")
+        return result
 
     def _stored_rates_from_token1_ratio(self):
         # ref: https://etherscan.io/address/0xA96A65c051bF88B4095Ee1f2451C2A9d43F53Ae2#code
@@ -727,7 +788,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         b = S_ + D * self.A_PRECISION // Ann  # - D
         y = D
 
-        for _i in range(255):
+        for _ in range(255):
             y_prev = y
             y = (y * y + c) // (2 * y + b - D)
             # Equality with the precision of 1
@@ -911,7 +972,8 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                         return D
             # convergence typically occurs in 4 rounds or less, this should be unreachable!
             # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
-            raise
+            raise EVMRevertError
+
         elif self.address in ("0xDeBF20617708857ebe4F679508E7b7863a8A8EeE",):
             S = 0
 
@@ -942,7 +1004,40 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                         return D
             # convergence typically occurs in 4 rounds or less, this should be unreachable!
             # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
-            raise
+            raise EVMRevertError
+
+        elif self.address in ("0x2dded6Da1BF5DBdF597C45fcFaa3194e53EcfeAF",):
+            S = 0
+            Dprev = 0
+
+            S = sum(_xp)
+            if S == 0:
+                return 0
+
+            D = S
+            Ann = _amp * N_COINS
+            for _ in range(255):
+                D_P = D
+                for _x in _xp:
+                    D_P = (
+                        D_P * D // (_x * N_COINS)
+                    )  # If division by 0, this will be borked: only withdrawal will work. And that is good
+                Dprev = D
+                D = (
+                    (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                    * D
+                    // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+                )
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+            # convergence typically occurs in 4 rounds or less, this should be unreachable!
+            # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
+            raise EVMRevertError
 
         else:
             S = sum(_xp)
@@ -967,7 +1062,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     if Dprev - D <= 1:
                         return D
             # convergence typically occurs in 4 rounds or less, this should be unreachable!
-            raise
+            raise EVMRevertError
 
     @property
     def _w3_contract(self) -> Contract:
