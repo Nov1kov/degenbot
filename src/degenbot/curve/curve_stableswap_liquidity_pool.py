@@ -123,16 +123,27 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 byteorder="big",
             )
 
-        if self.address == "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE":
-            self.precision_multipliers = [1, 1000000000000, 1000000000000]
-            self.offpeg_fee_multiplier = int.from_bytes(
-                _w3.eth.call(
+        if self.address == "0xEB16Ae0052ed37f479f7fe63849198Df1765a733":
+            self.offpeg_fee_multiplier, *_ = eth_abi.decode(
+                data=_w3.eth.call(
                     {
                         "to": self.address,
                         "data": HexBytes(Web3.keccak(text="offpeg_fee_multiplier()"))[:4],
                     }
                 ),
-                byteorder="big",
+                types=["uint256"],
+            )
+
+        if self.address == "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE":
+            self.precision_multipliers = [1, 1000000000000, 1000000000000]
+            self.offpeg_fee_multiplier, *_ = eth_abi.decode(
+                data=_w3.eth.call(
+                    {
+                        "to": self.address,
+                        "data": HexBytes(Web3.keccak(text="offpeg_fee_multiplier()"))[:4],
+                    }
+                ),
+                types=["uint256"],
             )
 
         # _w3_factory_contract: Contract = _w3.eth.contract(
@@ -459,6 +470,32 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             dy = xp[j] - y - 1
             _fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - _fee) * self.PRECISION // _rates[j]
+
+        elif self.address in ("0xEB16Ae0052ed37f479f7fe63849198Df1765a733",):
+            live_balances = [token.get_balance(self.address) for token in self.tokens]
+            admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call()[
+                : len(self.tokens)
+            ]
+            balances = [
+                pool_balance - admin_balance
+                for pool_balance, admin_balance in zip(live_balances, admin_balances)
+            ]
+            xp = balances
+
+            x = xp[i] + dx
+            y = self._get_y(i, j, x, xp)
+            dy = xp[j] - y
+            _fee = (
+                _dynamic_fee(
+                    xpi=(xp[i] + x) // 2,
+                    xpj=(xp[j] + y) // 2,
+                    _fee=self.fee,
+                    _feemul=self.offpeg_fee_multiplier,
+                )
+                * dy
+                // self.FEE_DENOMINATOR
+            )
+            return dy - _fee
 
         elif self.address in (
             # dynamic fee pools
