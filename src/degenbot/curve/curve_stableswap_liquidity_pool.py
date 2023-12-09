@@ -260,18 +260,21 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             # since both tokens have 8 decimal places
             self.precision_multipliers = [1, 10**12]
 
-        if self.address == "0x06364f10B501e868329afBc005b3492902d6C763":
+        elif self.address == "0x06364f10B501e868329afBc005b3492902d6C763":
             self.USE_LENDING = [True, True, True, False]
 
-        if self.address == "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE":
+        elif self.address == "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE":
             self.precision_multipliers = [1, 1000000000000, 1000000000000]
 
-        if self.address == "0x2dded6Da1BF5DBdF597C45fcFaa3194e53EcfeAF":
+        elif self.address == "0x2dded6Da1BF5DBdF597C45fcFaa3194e53EcfeAF":
             self.precision_multipliers = [1, 1000000000000, 1000000000000]
 
-        if self.address == "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27":
+        elif self.address == "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27":
             self.precision_multipliers = [1, 1000000000000, 1000000000000, 1]
-            self.USE_LENDING = [True, True, True, True]
+            self.USE_LENDING = [True] * len(self.tokens)
+
+        elif self.address == "0xA5407eAE9Ba41422680e2e00537571bcC53efBfD":
+            self.USE_LENDING = [False] * len(self.tokens)
 
         if name is not None:  # pragma: no cover
             self.name = name
@@ -403,7 +406,10 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - fee) * self.PRECISION // rates[j]
 
-        elif self.address in ("0xA2B47E3D5c44877cca798226B7B8118F9BFb7A56",):
+        elif self.address in (
+            "0xA2B47E3D5c44877cca798226B7B8118F9BFb7A56",
+            "0xA5407eAE9Ba41422680e2e00537571bcC53efBfD",
+        ):
             rates = self._stored_rates_from_ctokens()
             xp = self._xp_mem(rates)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
@@ -551,7 +557,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             self.USE_LENDING,
             self.precision_multipliers,
         ):
-            if use_lending:
+            if not use_lending:
+                rate = self.LENDING_PRECISION
+            else:
                 rate = int.from_bytes(
                     config.get_web3().eth.call(
                         {
@@ -579,6 +587,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 # TODO: check if +1 is needed to simulate next block
                 next_block = config.get_web3().eth.get_block_number()
                 rate += rate * supply_rate * (next_block - old_block) // self.LENDING_PRECISION
+
             result.append(multiplier * rate)
         return result
 
