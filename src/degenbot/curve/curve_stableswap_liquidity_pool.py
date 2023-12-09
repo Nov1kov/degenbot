@@ -249,11 +249,18 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             # since both tokens have 8 decimal places
             self.precision_multipliers = [1, 10**12]
 
+        if self.address == "0x06364f10B501e868329afBc005b3492902d6C763":
+            self.USE_LENDING = [True, True, True, False]
+
         if self.address == "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE":
             self.precision_multipliers = [1, 1000000000000, 1000000000000]
 
         if self.address == "0x2dded6Da1BF5DBdF597C45fcFaa3194e53EcfeAF":
             self.precision_multipliers = [1, 1000000000000, 1000000000000]
+
+        if self.address == "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27":
+            self.precision_multipliers = [1, 1000000000000, 1000000000000, 1]
+            self.USE_LENDING = [True, True, True, True]
 
         if name is not None:  # pragma: no cover
             self.name = name
@@ -401,14 +408,17 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y_with_A_precision(i, j, x, xp)
             dy = xp[j] - y - 1
-
-            print(f"{rates=}")
-            print(f"{xp=}")
-            print(f"{x=}")
-            print(f"{y=}")
-            print(f"{dy=}")
-
             return (dy - (self.fee * dy // self.FEE_DENOMINATOR)) * self.PRECISION // rates[j]
+
+        elif self.address in ("0x06364f10B501e868329afBc005b3492902d6C763",):
+            rates = self._stored_rates_from_ytokens()
+            print(f"{rates=}")
+            xp = self._xp_mem(rates, self.balances)
+            x = xp[i] + (dx * rates[i] // self.PRECISION)
+            y = self._get_y(i, j, x, xp)
+            dy = (xp[j] - y - 1) * self.PRECISION // rates[j]
+            fee = self.fee * dy // self.FEE_DENOMINATOR
+            return dy - fee
 
         elif self.address in ("0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27",):
             rates = self._stored_rates_from_ytokens()
@@ -537,22 +547,32 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
     def _stored_rates_from_ytokens(self):
         # ref: https://etherscan.io/address/0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27#code
-        prices_per_share = [
-            int.from_bytes(
-                config.get_web3().eth.call(
-                    {
-                        "to": HexBytes(token.address),
-                        "data": Web3.keccak(text="getPricePerFullShare()"),
-                    }
+
+        result = []
+
+        for token, multiplier, is_lending in zip(
+            self.tokens, self.precision_multipliers, self.USE_LENDING
+        ):
+            if is_lending:
+                rate, *_ = eth_abi.decode(
+                    data=config.get_web3().eth.call(
+                        {
+                            "to": HexBytes(token.address),
+                            "data": Web3.keccak(text="getPricePerFullShare()"),
+                        }
+                    ),
+                    types=["uint256"],
                 )
-            )
-            for token in self.tokens
-        ]
-        precision_multipliers = self.precision_multipliers
-        return [
-            multiplier * price_per_share
-            for multiplier, price_per_share in zip(precision_multipliers, prices_per_share)
-        ]
+            else:
+                rate = self.LENDING_PRECISION
+            result.append(rate * multiplier)
+
+        # return [
+        #     multiplier * price_per_share
+        #     for multiplier, price_per_share in zip(precision_multipliers, prices_per_share)
+        # ]
+
+        return result
 
     def _stored_rates_from_cytokens(self):
         # exchangeRateStored * (1 + supplyRatePerBlock * (getBlockNumber - accrualBlockNumber) / 1e18)
