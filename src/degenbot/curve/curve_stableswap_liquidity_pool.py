@@ -277,6 +277,10 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             self.precision_multipliers = [1, 1000000000000, 1000000000000, 1]
             self.USE_LENDING = [True] * len(self.tokens)
 
+        elif self.address == "0x45F783CCE6B7FF23B2ab2D70e416cdb7D6055f51":
+            self.precision_multipliers = [1, 1000000000000, 1000000000000, 1]
+            self.USE_LENDING = [True] * len(self.tokens)
+
         elif self.address == "0xA5407eAE9Ba41422680e2e00537571bcC53efBfD":
             self.USE_LENDING = [False] * len(self.tokens)
 
@@ -442,7 +446,10 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return dy - fee
 
-        elif self.address in ("0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27",):
+        elif self.address in (
+            "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27",
+            "0x45F783CCE6B7FF23B2ab2D70e416cdb7D6055f51",
+        ):
             rates = self._stored_rates_from_ytokens()
             xp = self._xp_mem(rates, self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
@@ -452,7 +459,16 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             return dy - fee
 
         elif self.address in ("0xA96A65c051bF88B4095Ee1f2451C2A9d43F53Ae2",):
-            rates = self._stored_rates_from_token1_ratio()
+            rates = self._stored_rates_from_aeth()
+            xp = self._xp_mem(rates, self.balances)
+            x = xp[i] + (dx * rates[i] // self.PRECISION)
+            y = self._get_y_with_A_precision(i, j, x, xp)
+            dy = xp[j] - y
+            fee = self.fee * dy // self.FEE_DENOMINATOR
+            return (dy - fee) * self.PRECISION // rates[j]
+
+        elif self.address in ("0xF9440930043eb3997fc70e1339dBb11F341de7A8",):
+            rates = self._stored_rates_from_reth()
             xp = self._xp_mem(rates, self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y_with_A_precision(i, j, x, xp)
@@ -670,16 +686,30 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         print(f"{result=}")
         return result
 
-    def _stored_rates_from_token1_ratio(self):
+    def _stored_rates_from_reth(self):
+        # ref: https://etherscan.io/address/0xF9440930043eb3997fc70e1339dBb11F341de7A8#code
+        ratio, *_ = eth_abi.decode(
+            data=config.get_web3().eth.call(
+                {
+                    "to": HexBytes(self.tokens[1].address),
+                    "data": Web3.keccak(text="getExchangeRate()"),
+                }
+            ),
+            types=["uint256"],
+        )
+        return [self.PRECISION, ratio]
+
+    def _stored_rates_from_aeth(self):
         # ref: https://etherscan.io/address/0xA96A65c051bF88B4095Ee1f2451C2A9d43F53Ae2#code
-        aeth_ratio = int.from_bytes(
-            config.get_web3().eth.call(
+        ratio, *_ = eth_abi.decode(
+            data=config.get_web3().eth.call(
                 {"to": HexBytes(self.tokens[1].address), "data": Web3.keccak(text="ratio()")}
-            )
+            ),
+            types=["uint256"],
         )
         return [
             self.PRECISION,
-            self.PRECISION * self.LENDING_PRECISION // aeth_ratio,
+            self.PRECISION * self.LENDING_PRECISION // ratio,
         ]
 
     def _stored_rates_from_oracle(self):
