@@ -538,7 +538,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         elif self.address in ("0x06364f10B501e868329afBc005b3492902d6C763",):
             rates = self._stored_rates_from_ytokens()
-            print(f"{rates=}")
+
             xp = self._xp_mem(rates, self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
@@ -569,11 +569,17 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         elif self.address in ("0xF9440930043eb3997fc70e1339dBb11F341de7A8",):
             rates = self._stored_rates_from_reth()
-            xp = self._xp_mem(rates, self.balances)
+            print(f"{rates=}")
+            xp = self._xp_mem(rates)
+            print(f"{xp=}")
             x = xp[i] + (dx * rates[i] // self.PRECISION)
+            print(f"{x=}")
             y = self._get_y_with_A_precision(i, j, x, xp)
+            print(f"{y=}")
             dy = xp[j] - y
+            print(f"{dy=}")
             fee = self.fee * dy // self.FEE_DENOMINATOR
+            print(f"{fee=}")
             return (dy - fee) * self.PRECISION // rates[j]
 
         elif self.is_metapool:
@@ -1066,6 +1072,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         amp = self._A_with_A_precision() if _amp is None else _amp
         D = self._get_D_with_A_precision(xp, amp) if _D is None else _D
 
+        print(f"{amp=}")
+        print(f"{D=}")
+
         S_ = 0
         _x = 0
         y_prev = 0
@@ -1099,7 +1108,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         raise
 
     def _xp_mem(
-        self, rates: Optional[List[int]] = None, balances: Optional[List[int]] = None
+        self,
+        rates: Optional[List[int]] = None,
+        balances: Optional[List[int]] = None,
     ) -> List[int]:
         if rates is None:
             rates = self.rate_multipliers
@@ -1271,6 +1282,40 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             # convergence typically occurs in 4 rounds or less, this should be unreachable!
             # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
             raise EVMRevertError
+
+        elif self.address in ("0xF9440930043eb3997fc70e1339dBb11F341de7A8",):
+            S = 0
+            Dprev = 0
+
+            for _x in _xp:
+                S += _x
+            if S == 0:
+                return 0
+
+            D = S
+            Ann = _amp * N_COINS
+            for _ in range(255):
+                D_P = D
+                for _x in _xp:
+                    D_P = (
+                        D_P * D // (_x * N_COINS)
+                    )  # If division by 0, this will be borked: only withdrawal will work. And that is good
+                Dprev = D
+                D = (
+                    (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                    * D
+                    // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+                )
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+            # convergence typically occurs in 4 rounds or less, this should be unreachable!
+            # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
+            raise
 
         elif self.address in ("0xDeBF20617708857ebe4F679508E7b7863a8A8EeE",):
             S = 0
