@@ -365,6 +365,46 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - fee) * self.PRECISION // rates[j]
 
+        elif self.address == "0x618788357D0EBd8A37e763ADab3bc575D54c2C7d":
+            N_COINS = len(self.tokens)
+            MAX_COIN = N_COINS - 1
+
+            def _get_scaled_redemption_price():
+                REDEMPTION_PRICE_SCALE = 10**9
+
+                snap_contract_address, *_ = eth_abi.decode(
+                    types=["address"],
+                    data=config.get_web3().eth.call(
+                        {
+                            "to": self.address,
+                            "data": Web3.keccak(text="redemption_price_snap()")[:4],
+                        }
+                    ),
+                )
+                rate, *_ = eth_abi.decode(
+                    types=["uint256"],
+                    data=config.get_web3().eth.call(
+                        {
+                            "to": to_checksum_address(snap_contract_address),
+                            "data": Web3.keccak(text="snappedRedemptionPrice()")[:4],
+                        }
+                    ),
+                )
+                return rate // REDEMPTION_PRICE_SCALE
+
+            rates = [
+                _get_scaled_redemption_price(),
+                self.base_pool._w3_contract.functions.get_virtual_price().call(),
+            ]
+
+            xp = [rate * balance // self.PRECISION for rate, balance in zip(rates, self.balances)]
+
+            x = xp[i] + (dx * rates[i] // self.PRECISION)
+            y = self._get_y(i, j, x, xp)
+            dy = xp[j] - y - 1
+            fee = self.fee * dy // self.FEE_DENOMINATOR
+            return (dy - fee) * self.PRECISION // rates[j]
+
         elif self.address == "0x42d7025938bEc20B69cBae5A77421082407f053A":
             N_COINS = len(self.tokens)
             MAX_COIN = N_COINS - 1
