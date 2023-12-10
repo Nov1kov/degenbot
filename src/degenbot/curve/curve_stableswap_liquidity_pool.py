@@ -115,7 +115,10 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         _w3 = config.get_web3()
         _w3_contract = self._w3_contract
 
-        if self.address == "0x59Ab5a5b5d617E478a2479B0cAD80DA7e2831492":
+        if self.address in (
+            "0x59Ab5a5b5d617E478a2479B0cAD80DA7e2831492",
+            "0xBfAb6FA95E0091ed66058ad493189D2cB29385E6",
+        ):
             self.oracle_method = int.from_bytes(
                 _w3.eth.call(
                     {
@@ -541,7 +544,10 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return dy - fee
 
-        elif self.address in ("0x59Ab5a5b5d617E478a2479B0cAD80DA7e2831492",):
+        elif self.address in (
+            "0x59Ab5a5b5d617E478a2479B0cAD80DA7e2831492",
+            "0xBfAb6FA95E0091ed66058ad493189D2cB29385E6",
+        ):
             live_balances = [token.get_balance(self.address) for token in self.tokens]
             admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call()[
                 : len(self.tokens)
@@ -1115,9 +1121,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         amp = self._A_with_A_precision() if _amp is None else _amp
         D = self._get_D_with_A_precision(xp, amp) if _D is None else _D
-
-        print(f"{amp=}")
-        print(f"{D=}")
 
         S_ = 0
         _x = 0
