@@ -365,6 +365,20 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - fee) * self.PRECISION // rates[j]
 
+        elif self.address == "0x42d7025938bEc20B69cBae5A77421082407f053A":
+            N_COINS = len(self.tokens)
+            MAX_COIN = N_COINS - 1
+
+            rates = list(self.rate_multipliers)
+            rates[MAX_COIN] = self.base_pool._w3_contract.functions.get_virtual_price().call()
+            xp = [rate * balance // self.PRECISION for rate, balance in zip(rates, self.balances)]
+
+            x = xp[i] + (dx * rates[i] // self.PRECISION)
+            y = self._get_y(i, j, x, xp)
+            dy = xp[j] - y - 1
+            fee = self.fee * dy // self.FEE_DENOMINATOR
+            return (dy - fee) * self.PRECISION // rates[j]
+
         elif self.address == "0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5":
             N_COINS = len(self.tokens)
 
