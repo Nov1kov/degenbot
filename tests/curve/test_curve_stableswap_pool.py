@@ -1,15 +1,17 @@
 import itertools
 
 import degenbot
+import eth_abi
 import pytest
 import ujson
 from degenbot.curve.abi import CURVE_V1_FACTORY_ABI
-from degenbot.exceptions import ZeroLiquidityError
 from degenbot.curve.curve_stableswap_liquidity_pool import (
+    BROKEN_POOLS,
     BrokenPool,
     CurveStableswapPool,
-    BROKEN_POOLS,
 )
+from degenbot.exceptions import ZeroLiquidityError
+from hexbytes import HexBytes
 from web3 import Web3
 from web3.contract import Contract
 
@@ -70,11 +72,26 @@ def _test_calculations(lp: CurveStableswapPool):
                 token_in_quantity=amount,
             )
 
-            contract_amount = lp._w3_contract.functions.get_dy(
-                token_in_index,
-                token_out_index,
-                amount,
-            ).call()
+            tx = {
+                "to": lp.address,
+                "data": Web3.keccak(text="get_dy(uint256,uint256,uint256)")[:4]
+                + eth_abi.encode(
+                    types=["uint256", "uint256", "uint256"],
+                    args=[token_in_index, token_out_index, amount],
+                ),
+            }
+
+            if lp.address == "0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5":
+                contract_amount, *_ = eth_abi.decode(
+                    data=degenbot.get_web3().eth.call(tx),
+                    types=["uint256"],
+                )
+            else:
+                contract_amount = lp._w3_contract.functions.get_dy(
+                    token_in_index,
+                    token_out_index,
+                    amount,
+                ).call()
 
             assert calc_amount == contract_amount
 
@@ -126,7 +143,8 @@ def test_base_registry_pools(local_web3_ethereum_full: Web3, metaregistry: Contr
 def test_single_pool(local_web3_ethereum_full: Web3, metaregistry: Contract):
     degenbot.set_web3(local_web3_ethereum_full)
 
-    POOL_ADDRESS = "0xA2B47E3D5c44877cca798226B7B8118F9BFb7A56"
+    POOL_ADDRESS = "0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5"
+    # POOL_ADDRESS = "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27"
 
     lp = CurveStableswapPool(address=POOL_ADDRESS)
     _test_balances(lp, metaregistry)
