@@ -1,3 +1,6 @@
+# TODO: replace eth_calls where possible
+
+
 from threading import Lock
 from typing import Dict, Iterable, List, Optional, Set, Union
 
@@ -361,6 +364,89 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             dy = xp[j] - y - 1
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - fee) * self.PRECISION // rates[j]
+
+        elif self.address == "0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5":
+            N_COINS = len(self.tokens)
+
+            assert i != j and i < N_COINS and j < N_COINS, "coin index out of range"
+            assert dx > 0, "do not exchange 0 coins"
+
+            precisions = [
+                10**12,  # USDT
+                10**10,  # WBTC
+                1,  # WETH
+            ]
+
+            price_scale = [0] * (len(self.tokens) - 1)
+            for k in range(N_COINS - 1):
+                price_scale[k], *_ = eth_abi.decode(
+                    types=["uint256"],
+                    data=config.get_web3().eth.call(
+                        {
+                            "to": self.address,
+                            "data": Web3.keccak(text="price_scale(uint256)")[:4]
+                            + eth_abi.encode(
+                                types=["uint256"],
+                                args=[k],
+                            ),
+                        }
+                    ),
+                )
+
+            xp = self.balances.copy()
+
+            y0 = xp[j]
+
+            xp[i] += dx
+            xp[0] *= precisions[0]
+
+            for k in range(N_COINS - 1):
+                xp[k + 1] = xp[k + 1] * price_scale[k] * precisions[k + 1] // self.PRECISION
+
+            A = self.a_coefficient * self.A_PRECISION
+
+            gamma, *_ = eth_abi.decode(
+                types=["uint256"],
+                data=config.get_web3().eth.call(
+                    {
+                        "to": self.address,
+                        "data": Web3.keccak(text="gamma()")[:4],
+                    }
+                ),
+            )
+
+            D, *_ = eth_abi.decode(
+                types=["uint256"],
+                data=config.get_web3().eth.call(
+                    {
+                        "to": self.address,
+                        "data": Web3.keccak(text="D()")[:4],
+                    }
+                ),
+            )
+
+            y = self.newton_y(A, gamma, xp, D, j)
+            dy = xp[j] - y - 1
+
+            xp[j] = y
+            if j > 0:
+                dy = dy * self.PRECISION // price_scale[j - 1]
+            dy //= precisions[j]
+            fee_calc, *_ = eth_abi.decode(
+                types=["uint256"],
+                data=config.get_web3().eth.call(
+                    {
+                        "to": self.address,
+                        "data": Web3.keccak(text="fee_calc(uint256[3])")[:4]
+                        + eth_abi.encode(
+                            types=["uint256[3]"],
+                            args=[xp],
+                        ),
+                    }
+                ),
+            )
+            dy -= fee_calc * dy // 10**10
+            return dy
 
         # TODO: investigate off-by-one compared to basic calc
         elif self.address in (
@@ -732,6 +818,102 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             )
 
         return rates
+
+    def newton_y(
+        self,
+        ANN,
+        gamma,
+        x: List[int],
+        D,
+        i,
+    ) -> int:
+        """
+        Calculating x[i] given other balances x[0..N_COINS-1] and invariant D
+        ANN = A * N**N
+        """
+
+        N_COINS = len(self.tokens)
+        A_MULTIPLIER = self.A_PRECISION
+
+        # Safety checks
+        assert (
+            ANN > N_COINS**N_COINS * A_MULTIPLIER - 1
+            and ANN < 10000 * N_COINS**N_COINS * A_MULTIPLIER + 1
+        )  # dev: unsafe values A
+        assert gamma > 10**10 - 1 and gamma < 10**16 + 1  # dev: unsafe values gamma
+        assert D > 10**17 - 1 and D < 10**15 * 10**18 + 1  # dev: unsafe values D
+        for k in range(3):
+            if k != i:
+                frac = x[k] * 10**18 // D
+                assert (frac > 10**16 - 1) and (
+                    frac < 10**20 + 1
+                ), f"{frac=} out of range"  # dev: unsafe values x[i]
+
+        y = D // N_COINS
+        K0_i = 10**18
+        S_i = 0
+
+        x_sorted = x.copy()
+        x_sorted[i] = 0
+        x_sorted = sorted(x_sorted, reverse=True)  # From high to low
+
+        convergence_limit = max(max(x_sorted[0] // 10**14, D // 10**14), 100)
+        for j in range(2, N_COINS + 1):
+            _x = x_sorted[N_COINS - j]
+            y = y * D // (_x * N_COINS)  # Small _x first
+            S_i += _x
+        for j in range(N_COINS - 1):
+            K0_i = K0_i * x_sorted[j] * N_COINS // D  # Large _x first
+
+        for j in range(255):
+            y_prev = y
+
+            K0 = K0_i * y * N_COINS // D
+            S = S_i + y
+
+            _g1k0 = gamma + 10**18
+            if _g1k0 > K0:
+                _g1k0 = _g1k0 - K0 + 1
+            else:
+                _g1k0 = K0 - _g1k0 + 1
+
+            # D // (A * N**N) * _g1k0**2 // gamma**2
+            mul1 = 10**18 * D // gamma * _g1k0 // gamma * _g1k0 * A_MULTIPLIER // ANN
+
+            # 2*K0 // _g1k0
+            mul2 = 10**18 + (2 * 10**18) * K0 // _g1k0
+
+            yfprime = 10**18 * y + S * mul2 + mul1
+            _dyfprime = D * mul2
+            if yfprime < _dyfprime:
+                y = y_prev // 2
+                continue
+            else:
+                yfprime -= _dyfprime
+            fprime = yfprime // y
+
+            # y -= f // f_prime;  y = (y * fprime - f) // fprime
+            # y = (yfprime + 10**18 * D - 10**18 * S) // fprime + mul1 // fprime * (10**18 - K0) // K0
+            y_minus = mul1 // fprime
+            y_plus = (yfprime + 10**18 * D) // fprime + y_minus * 10**18 // K0
+            y_minus += 10**18 * S // fprime
+
+            if y_plus < y_minus:
+                y = y_prev // 2
+            else:
+                y = y_plus - y_minus
+
+            diff = 0
+            if y > y_prev:
+                diff = y - y_prev
+            else:
+                diff = y_prev - y
+            if diff < max(convergence_limit, y // 10**14):
+                frac = y * 10**18 // D
+                assert (frac > 10**16 - 1) and (frac < 10**20 + 1)  # dev: unsafe value for y
+                return y
+
+        raise "Did not converge"
 
     def _get_y(
         self,
