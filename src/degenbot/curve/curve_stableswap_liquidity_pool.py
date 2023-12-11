@@ -369,6 +369,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x4e0915C88bC70750D68C481540F081fEFaF22273",
             "0x1005F7406f32a61BD760CfA14aCCd2737913d546",
             "0x6A274dE3e2462c7614702474D64d376729831dCa",
+            "0xb9446c4Ef5EBE66268dA6700D26f96273DE3d571",
         ):
             live_balances = [
                 token.get_balance(self.address, block=self.update_block) for token in self.tokens
@@ -453,6 +454,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         elif self.address in (
             # TODO: check if these metapools can be folded into the general case
+            "0x06cb22615BA53E60D67Bf6C341a0fD5E718E1655",
             "0x071c661B4DeefB59E2a3DdB20Db036821eeE8F4b",
             "0x0f9cb53Ebe405d49A0bbdBD291A65Ff571bC83e1",
             "0x3E01dD8a5E1fb3481F0F589056b428Fc308AF0Fb",
@@ -462,9 +464,15 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x4807862AA8b2bF68830e4C8dc86D0e9A998e085a",
             "0x4f062658EaAF2C1ccf8C8e36D6824CDf41167956",
             "0x5a6A4D54456819380173272A5E8E9B9904BdF41B",
+            "0x5B3b5DF2BF2B6543f78e053bD91C4Bdd820929f1",
+            "0x67d9eAe741944D4402eB0D1cB3bC3a168EC1764c",
             "0x7F55DDe206dbAD629C080068923b36fe9D6bDBeF",
             "0x8474DdbE98F5aA3179B3B3F5942D724aFcdec9f6",
+            "0x87650D7bbfC3A9F10587d7778206671719d9910D",
             "0x890f4e345B1dAED0367A877a1612f86A1f86985f",
+            "0x9f6664205988C3bf4B12B851c075102714869535",
+            "0xAA5A67c256e27A5d80712c51971408db3370927D",
+            "0xAc5f019a302c4c8caAC0a7F28183ac62E6e80034",
             "0xC18cC39da8b11dA8c3541C598eE022258F9744da",
             "0xC25099792E9349C7DD09759744ea681C7de2cb66",
             "0xd632f22692FaC7611d2AA1C0D552930D43CAEd3B",
@@ -472,12 +480,10 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0xE7a24EF0C5e95Ffb0f6684b813A78F2a3AD7D171",
             "0xEcd5e75AFb02eFa118AF914515D6521aaBd189F1",
             "0xEd279fDD11cA84bEef15AF5D39BB4d4bEE23F0cA",
-            "0x87650D7bbfC3A9F10587d7778206671719d9910D",
-            "0x06cb22615BA53E60D67Bf6C341a0fD5E718E1655",
             "0xf5A95ccDe486B5fE98852bB02d8eC80a4b9422BD",
-            "0x67d9eAe741944D4402eB0D1cB3bC3a168EC1764c",
-            "0x5B3b5DF2BF2B6543f78e053bD91C4Bdd820929f1",
-            "0x67d9eAe741944D4402eB0D1cB3bC3a168EC1764c",
+            "0xfa65aa60a9D45623c57D383fb4cf8Fb8b854cC4D",
+            "0x7abD51BbA7f9F6Ae87aC77e1eA1C5783adA56e5c",
+            "0xA77d09743F77052950C4eb4e6547E9665299BecD",
         ):
             rates = list(self.rate_multipliers)
             rates[-1] = self.base_pool._w3_contract.functions.get_virtual_price().call(
@@ -495,6 +501,37 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             # print(f"{dy=}")
             # print(f"{fee=}")
             return (dy - fee) * self.PRECISION // rates[j]
+
+        elif self.is_metapool:
+            if self.address in (
+                "0xC61557C5d177bd7DC889A3b621eEC333e168f68A",
+                "0x8038C01A0390a8c547446a0b2c18fc9aEFEcc10c",
+            ):
+                _rates = [
+                    10**self.PRECISION_DECIMALS,
+                    self.base_pool._w3_contract.functions.get_virtual_price().call(
+                        block_identifier=self.update_block
+                    ),
+                ]
+                xp = self._xp_mem(rates=_rates)
+                x = xp[i] + (dx * _rates[i] // self.PRECISION)
+                y = self._get_y_with_A_precision(i, j, x, xp)
+                dy = xp[j] - y - 1
+                _fee = self.fee * dy // self.FEE_DENOMINATOR
+                return (dy - _fee) * self.PRECISION // _rates[j]
+            else:
+                _rates = [
+                    self.rate_multipliers[0],
+                    self.base_pool._w3_contract.functions.get_virtual_price().call(
+                        block_identifier=self.update_block
+                    ),
+                ]
+                xp = self._xp_mem(rates=_rates)
+                x = xp[i] + (dx * _rates[i] // self.PRECISION)
+                y = self._get_y_with_A_precision(i, j, x, xp)
+                dy = xp[j] - y - 1
+                _fee = self.fee * dy // self.FEE_DENOMINATOR
+                return (dy - _fee) * self.PRECISION // _rates[j]
 
         elif self.address == "0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5":
             N_COINS = len(self.tokens)
@@ -583,20 +620,44 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             dy -= fee_calc * dy // 10**10
             return dy
 
-        # TODO: investigate off-by-one compared to basic calc
+        elif self.address in (
+            "0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714",
+            "0x93054188d876f558f4a66B2EF1d97d16eDf0895B",
+            "0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+        ):
+            rates = self.rate_multipliers
+            xp = self._xp_mem(rates=rates)
+            x = xp[i] + (dx * rates[i] // self.PRECISION)
+            y = self._get_y(i, j, x, xp)
+            dy = (xp[j] - y - 1) * self.PRECISION // rates[j]
+            _fee = self.fee * dy // self.FEE_DENOMINATOR
+            return dy - _fee
+
         elif self.address in (
             "0x0Ce6a5fF5217e38315f87032CF90686C96627CAA",
-            "0xF178C0b5Bb7e7aBF4e12A4838C7b7c5bA2C623c0",
-            "0xc5424B857f758E906013F3555Dad202e4bdB4567",
-            "0xDC24316b9AE028F1497c275EB9192a3Ea0f67022",
-            "0xFD5dB7463a3aB53fD211b4af195c5BCCC1A03890",
-            "0xDcEF968d416a41Cdac0ED8702fAC8128A64241A2",
-            "0xa1F8A6807c402E4A15ef4EBa36528A3FED24E577",
-            "0xf253f83AcA21aAbD2A20553AE0BF7F65C755A07F",
-            "0xaE34574AC03A15cd58A92DC79De7B1A0800F1CE3",
-            "0x8461A004b50d321CB22B7d034969cE6803911899",
             "0x19b080FE1ffA0553469D20Ca36219F17Fcf03859",
+            "0x1F6bb2a7a2A84d08bb821B89E38cA651175aeDd4",
             "0x3CFAa1596777CAD9f5004F9a0c443d912E262243",
+            "0x3F1B0278A9ee595635B61817630cC19DE792f506",
+            "0x8461A004b50d321CB22B7d034969cE6803911899",
+            "0x8818a9bb44Fbf33502bE7c15c500d0C783B73067",
+            "0x9c2C8910F113181783c249d8F6Aa41b51Cde0f0c",
+            "0xa1F8A6807c402E4A15ef4EBa36528A3FED24E577",
+            "0xaE34574AC03A15cd58A92DC79De7B1A0800F1CE3",
+            "0xc5424B857f758E906013F3555Dad202e4bdB4567",
+            "0xc8a7C1c4B748970F57cA59326BcD49F5c9dc43E3",
+            "0xcbD5cC53C5b846671C6434Ab301AD4d210c21184",
+            "0xD6Ac1CB9019137a896343Da59dDE6d097F710538",
+            "0xDC24316b9AE028F1497c275EB9192a3Ea0f67022",
+            "0xDcEF968d416a41Cdac0ED8702fAC8128A64241A2",
+            "0xF178C0b5Bb7e7aBF4e12A4838C7b7c5bA2C623c0",
+            "0xf253f83AcA21aAbD2A20553AE0BF7F65C755A07F",
+            "0xFD5dB7463a3aB53fD211b4af195c5BCCC1A03890",
+            "0xbB2dC673E1091abCA3eaDB622b18f6D4634b2CD9",
+            "0xf083FBa98dED0f9C970e5a418500bad08D8b9732",
+            "0xe7A3b38c39F97E977723bd1239C3470702568e7B",
+            "0xD7C10449A6D134A9ed37e2922F8474EAc6E5c100",
+            "0xBa3436Fd341F2C8A928452Db3C5A3670d1d5Cc73",
         ):
             rates = self.rate_multipliers
             xp = self._xp_mem(rates, self.balances)
@@ -606,18 +667,14 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - fee) * self.PRECISION // rates[j]
 
-        # TODO: investigate off-by-one compared to basic calc
         elif self.address in (
-            "0xb9446c4Ef5EBE66268dA6700D26f96273DE3d571",
-            "0xe7A3b38c39F97E977723bd1239C3470702568e7B",
-            "0xD7C10449A6D134A9ed37e2922F8474EAc6E5c100",
-            "0xBa3436Fd341F2C8A928452Db3C5A3670d1d5Cc73",
-            "0xfC8c34a3B3CFE1F1Dd6DBCCEC4BC5d3103b80FF0",
-            "0x4424b4A37ba0088D8a718b8fc2aB7952C7e695F5",
-            "0x857110B5f8eFD66CC3762abb935315630AC770B5",
             "0x21B45B2c1C53fDFe378Ed1955E8Cc29aE8cE0132",
+            "0x4424b4A37ba0088D8a718b8fc2aB7952C7e695F5",
             "0x602a9Abb10582768Fd8a9f13aD6316Ac2A5A2e2B",
+            "0x857110B5f8eFD66CC3762abb935315630AC770B5",
             "0xf253f83AcA21aAbD2A20553AE0BF7F65C755A07F",
+            "0xfC8c34a3B3CFE1F1Dd6DBCCEC4BC5d3103b80FF0",
+            "0x4CA9b3063Ec5866A4B82E437059D2C43d1be596F",
         ):
             rates = self.rate_multipliers
             xp = self._xp_mem(rates, self.balances)
@@ -632,6 +689,12 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x320B564Fb9CF36933eC507a846ce230008631fd3",
             "0x875DF0bA24ccD867f8217593ee27253280772A97",
             "0x9D0464996170c6B9e75eED71c68B99dDEDf279e8",
+            "0x55A8a39bc9694714E2874c1ce77aa1E599461E18",
+            "0xf03bD3cfE85f00bF5819AC20f0870cE8a8d1F0D8",
+            "0x04c90C198b2eFF55716079bc06d7CCc4aa4d7512",
+            "0xFB9a265b5a1f52d97838Ec7274A0b1442efAcC87",
+            "0xDa5B670CcD418a187a3066674A8002Adc9356Ad1",
+            "0xBaaa1F5DbA42C3389bDbc2c9D2dE134F5cD0Dc89",
         ):
             xp = self.balances
             x = xp[i] + dx
@@ -643,19 +706,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             # print(f"{y=}")
             # print(f"{dy=}")
             # print(f"{fee=}")
-            return dy - fee
-
-        elif self.address in ("0xDa5B670CcD418a187a3066674A8002Adc9356Ad1",):
-            xp = self.balances
-            x = xp[i] + dx
-            y = self._get_y_with_A_precision(i, j, x, xp)
-            dy = xp[j] - y - 1
-            fee = self.fee * dy // self.FEE_DENOMINATOR
-            print(f"{xp=}")
-            print(f"{x=}")
-            print(f"{y=}")
-            print(f"{dy=}")
-            print(f"{fee=}")
             return dy - fee
 
         elif self.address in (
@@ -743,35 +793,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - fee) * self.PRECISION // rates[j]
 
-        elif self.is_metapool:
-            if self.address in (
-                "0xC61557C5d177bd7DC889A3b621eEC333e168f68A",
-                "0x8038C01A0390a8c547446a0b2c18fc9aEFEcc10c",
-            ):
-                _rates = [
-                    10**self.PRECISION_DECIMALS,
-                    self.base_pool._w3_contract.functions.get_virtual_price().call(
-                        block_identifier=self.update_block
-                    ),
-                ]
-                xp = self._xp_mem(rates=_rates)
-                x = xp[i] + (dx * _rates[i] // self.PRECISION)
-                y = self._get_y_with_A_precision(i, j, x, xp)
-            else:
-                _rates = [
-                    self.rate_multipliers[0],
-                    self.base_pool._w3_contract.functions.get_virtual_price().call(
-                        block_identifier=self.update_block
-                    ),
-                ]
-                xp = self._xp_mem(rates=_rates)
-                x = xp[i] + (dx * _rates[i] // self.PRECISION)
-                y = self._get_y(i, j, x, xp)
-
-            dy = xp[j] - y - 1
-            _fee = self.fee * dy // self.FEE_DENOMINATOR
-            return (dy - _fee) * self.PRECISION // _rates[j]
-
         elif self.address in ("0xEB16Ae0052ed37f479f7fe63849198Df1765a733",):
             live_balances = [token.get_balance(self.address) for token in self.tokens]
             admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call(
@@ -828,18 +849,26 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             )
             return dy - _fee
         else:
-            print("DEFAULT CALC")
-            # dx and dy in c-units
             rates = self.rate_multipliers
-            xp = self._xp_mem()
-
+            xp = self._xp_mem(rates, self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
-            y = self._get_y(i, j, x, xp)
-            dy = (xp[j] - y - 1) * self.PRECISION // rates[j]
+            y = self._get_y_with_A_precision(i, j, x, xp)
+            dy = xp[j] - y - 1
+            fee = self.fee * dy // self.FEE_DENOMINATOR
+            return (dy - fee) * self.PRECISION // rates[j]
+        # else:
+        #     print("DEFAULT CALC")
+        #     # dx and dy in c-units
+        #     rates = self.rate_multipliers
+        #     xp = self._xp_mem()
 
-            _fee = self.fee * dy // self.FEE_DENOMINATOR
+        #     x = xp[i] + (dx * rates[i] // self.PRECISION)
+        #     y = self._get_y(i, j, x, xp)
+        #     dy = (xp[j] - y - 1) * self.PRECISION // rates[j]
 
-            return dy - _fee
+        #     _fee = self.fee * dy // self.FEE_DENOMINATOR
+
+        #     return dy - _fee
 
     def _stored_rates_from_ctokens(self):
         result = []
@@ -1391,10 +1420,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         N_COINS = len(self.tokens)
 
         if self.address in ("0xC61557C5d177bd7DC889A3b621eEC333e168f68A",):
-            S = 0
-            Dprev = 0
-            for x in _xp:
-                S += x
+            S = sum(_xp)
             if S == 0:
                 return 0
 
@@ -1451,11 +1477,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             raise
 
         elif self.address in ("0xF9440930043eb3997fc70e1339dBb11F341de7A8",):
-            S = 0
-            Dprev = 0
-
-            for _x in _xp:
-                S += _x
+            S = sum(_xp)
             if S == 0:
                 return 0
 
@@ -1483,10 +1505,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             raise
 
         elif self.address in ("0xDeBF20617708857ebe4F679508E7b7863a8A8EeE",):
-            S = 0
-
-            for _x in _xp:
-                S += _x
+            S = sum(_xp)
             if S == 0:
                 return 0
 
@@ -1515,9 +1534,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             raise EVMRevertError
 
         elif self.address in ("0x2dded6Da1BF5DBdF597C45fcFaa3194e53EcfeAF",):
-            S = 0
-            Dprev = 0
-
             S = sum(_xp)
             if S == 0:
                 return 0
@@ -1602,10 +1618,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             raise
 
         elif self.address in ("0xDa5B670CcD418a187a3066674A8002Adc9356Ad1",):
-            S = 0
-            Dprev = 0
-            for x in _xp:
-                S += x
+            S = sum(_xp)
             if S == 0:
                 return 0
 
@@ -1614,9 +1627,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             for _ in range(255):
                 D_P = D
                 for x in _xp:
-                    D_P = (
-                        D_P * D // (x * N_COINS)
-                    )  # If division by 0, this will be borked: only withdrawal will work. And that is good
+                    D_P = D_P * D // (x * N_COINS)
                 Dprev = D
                 D = (
                     (Ann * S // self.A_PRECISION + D_P * N_COINS)
@@ -1703,6 +1714,196 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     D_P = (
                         D_P * D // (x * N_COINS)
                     )  # If division by 0, this will be borked: only withdrawal will work. And that is good
+                Dprev = D
+                D = (
+                    (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                    * D
+                    // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+                )
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+            # convergence typically occurs in 4 rounds or less, this should be unreachable!
+            # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
+            raise
+
+        elif self.address in ("0xBaaa1F5DbA42C3389bDbc2c9D2dE134F5cD0Dc89",):
+            S = sum(_xp)
+            if S == 0:
+                return 0
+
+            D = S
+            Ann = _amp * N_COINS
+            for _ in range(255):
+                D_P = D
+                for x in _xp:
+                    D_P = D_P * D // (x * N_COINS)
+                Dprev = D
+                D = (
+                    (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                    * D
+                    // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+                )
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+            # convergence typically occurs in 4 rounds or less, this should be unreachable!
+            # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
+            raise
+
+        elif self.address in ("0xb9446c4Ef5EBE66268dA6700D26f96273DE3d571",):
+            S = sum(_xp)
+            if S == 0:
+                return 0
+
+            D = S
+            Ann = _amp * N_COINS
+            for _ in range(255):
+                D_P = D
+                for x in _xp:
+                    D_P = D_P * D // (x * N_COINS)
+                Dprev = D
+                D = (
+                    (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                    * D
+                    // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+                )
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+            # convergence typically occurs in 4 rounds or less, this should be unreachable!
+            # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
+            raise
+
+        elif self.address in ("0x7abD51BbA7f9F6Ae87aC77e1eA1C5783adA56e5c",):
+            S = sum(_xp)
+            if S == 0:
+                return 0
+
+            D = S
+            Ann = _amp * N_COINS
+            for _ in range(255):
+                D_P = D
+                for x in _xp:
+                    D_P = D_P * D // (x * N_COINS)
+                Dprev = D
+                D = (
+                    (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                    * D
+                    // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+                )
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+            # convergence typically occurs in 4 rounds or less, this should be unreachable!
+            # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
+            raise
+
+        elif self.address in ("0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",):
+            S = sum(_xp)
+            if S == 0:
+                return 0
+
+            D = S
+            Ann = _amp * N_COINS
+            for _ in range(255):
+                D_P = D
+                for _x in _xp:
+                    D_P = D_P * D // (_x * N_COINS)
+                Dprev = D
+                D = (Ann * S + D_P * N_COINS) * D // ((Ann - 1) * D + (N_COINS + 1) * D_P)
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        break
+                else:
+                    if Dprev - D <= 1:
+                        break
+            return D
+
+        elif self.address in ("0xe7A3b38c39F97E977723bd1239C3470702568e7B",):
+            S = sum(_xp)
+            if S == 0:
+                return 0
+
+            D = S
+            Ann = _amp * N_COINS
+            for _ in range(255):
+                D_P = D
+                for x in _xp:
+                    D_P = D_P * D // (x * N_COINS)
+                Dprev = D
+                D = (
+                    (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                    * D
+                    // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+                )
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+            # convergence typically occurs in 4 rounds or less, this should be unreachable!
+            # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
+            raise
+
+        elif self.address in ("0xA77d09743F77052950C4eb4e6547E9665299BecD",):
+            S = sum(_xp)
+            if S == 0:
+                return 0
+
+            D = S
+            Ann = _amp * N_COINS
+            for _ in range(255):
+                D_P = D
+                for x in _xp:
+                    D_P = D_P * D // (x * N_COINS)
+                Dprev = D
+                D = (
+                    (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                    * D
+                    // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+                )
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+            # convergence typically occurs in 4 rounds or less, this should be unreachable!
+            # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
+            raise
+
+        elif self.address in ("0x6870F9b4DD5d34C7FC53D0d85D9dBd1aAB339BF7",):
+            S = sum(_xp)
+            if S == 0:
+                return 0
+
+            D = S
+            Ann = _amp * N_COINS
+            for _ in range(255):
+                D_P = D
+                for x in _xp:
+                    D_P = D_P * D // (x * N_COINS)
                 Dprev = D
                 D = (
                     (Ann * S // self.A_PRECISION + D_P * N_COINS)
