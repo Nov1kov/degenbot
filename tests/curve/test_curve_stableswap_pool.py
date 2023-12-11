@@ -179,7 +179,7 @@ def test_eee_pool(local_web3_ethereum_archive: Web3, metaregistry: Contract):
 def test_single_pool(local_web3_ethereum_archive: Web3, metaregistry: Contract):
     degenbot.set_web3(local_web3_ethereum_archive)
 
-    POOL_ADDRESS = "0x3CFAa1596777CAD9f5004F9a0c443d912E262243"
+    POOL_ADDRESS = "0xAf25fFe6bA5A8a29665adCfA6D30C5Ae56CA0Cd3"
 
     lp = CurveStableswapPool(address=POOL_ADDRESS)
     print(f"{lp.rate_multipliers=}")
@@ -212,70 +212,70 @@ def test_factory_stableswap_pools(local_web3_ethereum_archive: Web3, metaregistr
             continue
 
 
-def test_all_registered_pools(local_web3_ethereum_archive: Web3, metaregistry: Contract):
-    degenbot.set_web3(local_web3_ethereum_archive)
+# def test_all_registered_pools(local_web3_ethereum_archive: Web3, metaregistry: Contract):
+#     degenbot.set_web3(local_web3_ethereum_archive)
 
-    pool_count = metaregistry.functions.pool_count().call()
+#     pool_count = metaregistry.functions.pool_count().call()
 
-    for pool_id in range(pool_count):
-        # Get the address and pool info
-        pool_address = metaregistry.functions.pool_list(pool_id).call()
-        print(f"{pool_id}: {pool_address=}")
+#     for pool_id in range(pool_count):
+#         # Get the address and pool info
+#         pool_address = metaregistry.functions.pool_list(pool_id).call()
+#         print(f"{pool_id}: {pool_address=}")
 
-        # # pool_balances,
-        # # pool_underlying_balances,
-        # pool_decimals = metaregistry.functions.get_pool_decimals(pool_address).call()
-        # # pool_underlying_decimals,
+#         # # pool_balances,
+#         # # pool_underlying_balances,
+#         # pool_decimals = metaregistry.functions.get_pool_decimals(pool_address).call()
+#         # # pool_underlying_decimals,
 
-        # TODO: investigate errors on these pools
+#         # TODO: investigate errors on these pools
 
-        # 810: pool_address='0x7F86Bf177Dd4F3494b841a37e810A34dD56c829B'
-        # 811: pool_address='0xf5f5B97624542D72A9E06f04804Bf81baA15e2B4'
-        # 812: pool_address='0x2889302a794dA87fBF1D6Db415C1492194663D13'
-        # 813: pool_address='0x5426178799ee0a0181A89b4f57eFddfAb49941Ec'
-        # 814: pool_address='0x4eBdF703948ddCEA3B11f675B4D1Fba9d2414A14'
-        # 815: pool_address='0x9847a74fB7C3c4362220f616E15b83A58527F7E4'
-        # 816: pool_address='0xdcafD1914afDBC5788B701F47283CaeEAa5FBAed'
-        # 817: pool_address='0x05CA1ff6fF45e55906c86Ad0d3FB2EbFaE9E0891'
-        # 818: pool_address='0x037164C912f9733A0973B18EE339FBeF66cfd2C2'
-        # 819: pool_address='0x3921e2cb3Ac3bC009Fa4ec5Ea1ee0bc7FA4Be4C1'
-        # 820: pool_address='0x38AB39c82BE45f660AFa4A74E85dAd4b4aDd0492'
-        # 821: pool_address='0x86bF09aCB47AB31686bE413d614E9ded3666a1d3'
-        # 822: pool_address='0x50120e3348287C6d001E455f5b00FeA07A875541'
-        # 823: pool_address='0x6A62EE3e5c4b412Cd9167D3aFd5E481e1E30715a'
-        # 824: pool_address='0x2570f1bD5D2735314FC102eb12Fc1aFe9e6E7193'
-        # 825: pool_address='0x56aEFfd9935ACabF21543701212d67aD529F7f2e'
-        # 826: pool_address='0x954313005C56b555bdC41B84D6c63B69049d7847'
-        # 827: pool_address='0x1Ac76b6e2926ff475969d22a2258449a4600E006'
-        # 828: pool_address='0xC7DE47b9Ca2Fc753D6a2F167D8b3e19c6D18b19a'
-        # 829: pool_address='0x5b3BA844b3859f56524e99Ae54857b36c8Ae3eFE'
-        # 830: pool_address='0x8e2b641271544300e59d14E27520DEA204056D66'
-        # 831: pool_address='0xDB6925eA42897ca786a045B252D95aA7370f44b4'
-        # 832: pool_address='0x4D1941a887eC788F059b3bfcC8eE1E97b968825B'
-        # 833: pool_address='0x35B269Fe0106d3645d9780C5aaD97C8eb8041c40'
-        # 834: pool_address='0x84CeCB5525c6B1C20070E742da870062E84Da178'
-        # 835: pool_address='0x1830c553dC76d3447B69b7B0dC19CF9e3c739C78'
+#         # 810: pool_address='0x7F86Bf177Dd4F3494b841a37e810A34dD56c829B'
+#         # 811: pool_address='0xf5f5B97624542D72A9E06f04804Bf81baA15e2B4'
+#         # 812: pool_address='0x2889302a794dA87fBF1D6Db415C1492194663D13'
+#         # 813: pool_address='0x5426178799ee0a0181A89b4f57eFddfAb49941Ec'
+#         # 814: pool_address='0x4eBdF703948ddCEA3B11f675B4D1Fba9d2414A14'
+#         # 815: pool_address='0x9847a74fB7C3c4362220f616E15b83A58527F7E4'
+#         # 816: pool_address='0xdcafD1914afDBC5788B701F47283CaeEAa5FBAed'
+#         # 817: pool_address='0x05CA1ff6fF45e55906c86Ad0d3FB2EbFaE9E0891'
+#         # 818: pool_address='0x037164C912f9733A0973B18EE339FBeF66cfd2C2'
+#         # 819: pool_address='0x3921e2cb3Ac3bC009Fa4ec5Ea1ee0bc7FA4Be4C1'
+#         # 820: pool_address='0x38AB39c82BE45f660AFa4A74E85dAd4b4aDd0492'
+#         # 821: pool_address='0x86bF09aCB47AB31686bE413d614E9ded3666a1d3'
+#         # 822: pool_address='0x50120e3348287C6d001E455f5b00FeA07A875541'
+#         # 823: pool_address='0x6A62EE3e5c4b412Cd9167D3aFd5E481e1E30715a'
+#         # 824: pool_address='0x2570f1bD5D2735314FC102eb12Fc1aFe9e6E7193'
+#         # 825: pool_address='0x56aEFfd9935ACabF21543701212d67aD529F7f2e'
+#         # 826: pool_address='0x954313005C56b555bdC41B84D6c63B69049d7847'
+#         # 827: pool_address='0x1Ac76b6e2926ff475969d22a2258449a4600E006'
+#         # 828: pool_address='0xC7DE47b9Ca2Fc753D6a2F167D8b3e19c6D18b19a'
+#         # 829: pool_address='0x5b3BA844b3859f56524e99Ae54857b36c8Ae3eFE'
+#         # 830: pool_address='0x8e2b641271544300e59d14E27520DEA204056D66'
+#         # 831: pool_address='0xDB6925eA42897ca786a045B252D95aA7370f44b4'
+#         # 832: pool_address='0x4D1941a887eC788F059b3bfcC8eE1E97b968825B'
+#         # 833: pool_address='0x35B269Fe0106d3645d9780C5aaD97C8eb8041c40'
+#         # 834: pool_address='0x84CeCB5525c6B1C20070E742da870062E84Da178'
+#         # 835: pool_address='0x1830c553dC76d3447B69b7B0dC19CF9e3c739C78'
 
-        try:
-            pool_params: list = metaregistry.functions.get_pool_params(pool_address).call()
-        except Exception:
-            print(f"Error getting params from pool {pool_address}")
-            continue
+#         try:
+#             pool_params: list = metaregistry.functions.get_pool_params(pool_address).call()
+#         except Exception:
+#             print(f"Error getting params from pool {pool_address}")
+#             continue
 
-        if all(param == 0 for param in pool_params[1:]):
-            try:
-                CurveStableswapPool(address=pool_address)
-            except Exception:
-                print(f"Building pool failure: {pool_address=}")
-        else:
-            (
-                pool_a,
-                pool_d,
-                pool_gamma,
-                # pool_extra_profit,
-                # pool_fee_gamma,
-                # pool_adj_step,
-                # pool_ma_half_time,
-                *_,
-            ) = pool_params[1:]
-            print(f"CryptoPool detected: {pool_a=}, {pool_d=}, {pool_gamma=}")
+#         if all(param == 0 for param in pool_params[1:]):
+#             try:
+#                 CurveStableswapPool(address=pool_address)
+#             except Exception:
+#                 print(f"Building pool failure: {pool_address=}")
+#         else:
+#             (
+#                 pool_a,
+#                 pool_d,
+#                 pool_gamma,
+#                 # pool_extra_profit,
+#                 # pool_fee_gamma,
+#                 # pool_adj_step,
+#                 # pool_ma_half_time,
+#                 *_,
+#             ) = pool_params[1:]
+#             print(f"CryptoPool detected: {pool_a=}, {pool_d=}, {pool_gamma=}")
