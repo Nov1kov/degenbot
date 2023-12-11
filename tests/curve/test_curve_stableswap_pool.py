@@ -10,10 +10,10 @@ from degenbot.curve.curve_stableswap_liquidity_pool import (
     BrokenPool,
     CurveStableswapPool,
 )
-from degenbot.exceptions import ZeroLiquidityError
-from hexbytes import HexBytes
+from degenbot.exceptions import ZeroLiquidityError, ZeroSwapError
 from web3 import Web3
 from web3.contract import Contract
+from degenbot.fork import AnvilFork
 
 FRXETH_WETH_CURVE_POOL_ADDRESS = "0x9c3B46C0Ceb5B9e304FCd6D88Fc50f7DD24B31Bc"
 CURVE_METAREGISTRY_ADDRESS = "0xF98B45FA17DE75FB1aD0e7aFD971b0ca00e379fC"
@@ -41,18 +41,24 @@ CURVE_POOLINFO_ABI = ujson.loads(
 
 
 @pytest.fixture()
-def metaregistry(local_web3_ethereum_full: Web3) -> Contract:
-    return local_web3_ethereum_full.eth.contract(
+def metaregistry(local_web3_ethereum_archive: Web3) -> Contract:
+    return local_web3_ethereum_archive.eth.contract(
         address=CURVE_METAREGISTRY_ADDRESS, abi=CURVE_METAREGISTRY_ABI
     )
 
 
 def _test_balances(lp: CurveStableswapPool, metaregistry: Contract):
-    contract_balances = metaregistry.functions.get_balances(lp.address).call()[: len(lp.tokens)]
+    state_block = lp.update_block
+    print(f"Testing balances at block {state_block}")
+    contract_balances = metaregistry.functions.get_balances(lp.address).call(
+        block_identifier=state_block
+    )[: len(lp.tokens)]
     assert contract_balances == lp.balances
 
 
 def _test_calculations(lp: CurveStableswapPool):
+    state_block = lp.update_block
+    print(f"Testing calculations at block {state_block}")
     for token_in_index, token_out_index in itertools.permutations(range(len(lp.tokens)), 2):
         token_in = lp.tokens[token_in_index]
         token_out = lp.tokens[token_out_index]
@@ -60,30 +66,36 @@ def _test_calculations(lp: CurveStableswapPool):
         for amount_multiplier in [0.01, 0.05, 0.25]:
             amount = int(amount_multiplier * lp.balances[lp.tokens.index(token_in)])
 
-            if amount == 0:
-                # Skip empty pools
-                continue
+            # if amount == 0:
+            #     # Skip empty pools
+            #     continue
 
             print(f"Simulating swap: {amount} {token_in} for {token_out}")
 
-            calc_amount = lp.calculate_tokens_out_from_tokens_in(
-                token_in=token_in,
-                token_out=token_out,
-                token_in_quantity=amount,
-            )
-
-            tx = {
-                "to": lp.address,
-                "data": Web3.keccak(text="get_dy(uint256,uint256,uint256)")[:4]
-                + eth_abi.encode(
-                    types=["uint256", "uint256", "uint256"],
-                    args=[token_in_index, token_out_index, amount],
-                ),
-            }
+            try:
+                calc_amount = lp.calculate_tokens_out_from_tokens_in(
+                    token_in=token_in,
+                    token_out=token_out,
+                    token_in_quantity=amount,
+                )
+            except ZeroSwapError:
+                print("Skipping zero swap")
+                continue
 
             if lp.address == "0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5":
+                tx = {
+                    "to": lp.address,
+                    "data": Web3.keccak(text="get_dy(uint256,uint256,uint256)")[:4]
+                    + eth_abi.encode(
+                        types=["uint256", "uint256", "uint256"],
+                        args=[token_in_index, token_out_index, amount],
+                    ),
+                }
                 contract_amount, *_ = eth_abi.decode(
-                    data=degenbot.get_web3().eth.call(tx),
+                    data=degenbot.get_web3().eth.call(
+                        transaction=tx,
+                        block_identifier=state_block,
+                    ),
                     types=["uint256"],
                 )
             else:
@@ -91,13 +103,13 @@ def _test_calculations(lp: CurveStableswapPool):
                     token_in_index,
                     token_out_index,
                     amount,
-                ).call()
+                ).call(block_identifier=state_block)
 
             assert calc_amount == contract_amount
 
 
-def test_create_pool(local_web3_ethereum_full: Web3):
-    degenbot.set_web3(local_web3_ethereum_full)
+def test_create_pool(local_web3_ethereum_archive: Web3):
+    degenbot.set_web3(local_web3_ethereum_archive)
     lp = CurveStableswapPool(FRXETH_WETH_CURVE_POOL_ADDRESS)
 
     # Test providing tokens
@@ -111,21 +123,35 @@ def test_create_pool(local_web3_ethereum_full: Web3):
         )
 
 
-def test_3pool(local_web3_ethereum_full: Web3, metaregistry: Contract):
-    degenbot.set_web3(local_web3_ethereum_full)
+def test_tripool(local_web3_ethereum_archive: Web3, metaregistry: Contract):
+    degenbot.set_web3(local_web3_ethereum_archive)
     tripool = CurveStableswapPool("0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7")
 
     _test_balances(tripool, metaregistry)
     _test_calculations(tripool)
 
 
-def test_base_registry_pools(local_web3_ethereum_full: Web3, metaregistry: Contract):
+def test_A_ramping(local_web3_ethereum_archive: Web3, metaregistry: Contract):
+    # A range: 5000 -> 2000
+    # A time : 1653559305 -> 1654158027
+
+    fork = AnvilFork(
+        fork_url=local_web3_ethereum_archive.provider.endpoint_uri, fork_block=10_810_000
+    )
+    degenbot.set_web3(fork.w3)
+
+    tripool = CurveStableswapPool("0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7")
+    _test_balances(tripool, metaregistry)
+    _test_calculations(tripool)
+
+
+def test_base_registry_pools(local_web3_ethereum_archive: Web3, metaregistry: Contract):
     """
     Test the custom pools deployed by Curve
     """
-    degenbot.set_web3(local_web3_ethereum_full)
+    degenbot.set_web3(local_web3_ethereum_archive)
 
-    registry: Contract = local_web3_ethereum_full.eth.contract(
+    registry: Contract = local_web3_ethereum_archive.eth.contract(
         address=CURVE_REGISTRY_ADDRESS, abi=CURVE_REGISTRY_ABI
     )
     pool_count = registry.functions.pool_count().call()
@@ -140,24 +166,34 @@ def test_base_registry_pools(local_web3_ethereum_full: Web3, metaregistry: Contr
         _test_calculations(lp)
 
 
-def test_single_pool(local_web3_ethereum_full: Web3, metaregistry: Contract):
-    degenbot.set_web3(local_web3_ethereum_full)
-
-    POOL_ADDRESS = "0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5"
-    # POOL_ADDRESS = "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27"
+def test_eee_pool(local_web3_ethereum_archive: Web3, metaregistry: Contract):
+    degenbot.set_web3(local_web3_ethereum_archive)
+    POOL_ADDRESS = "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE"
 
     lp = CurveStableswapPool(address=POOL_ADDRESS)
+    print(f"{lp.rate_multipliers=}")
     _test_balances(lp, metaregistry)
     _test_calculations(lp)
 
 
-def test_factory_stableswap_pools(local_web3_ethereum_full: Web3, metaregistry: Contract):
+def test_single_pool(local_web3_ethereum_archive: Web3, metaregistry: Contract):
+    degenbot.set_web3(local_web3_ethereum_archive)
+
+    POOL_ADDRESS = "0x3CFAa1596777CAD9f5004F9a0c443d912E262243"
+
+    lp = CurveStableswapPool(address=POOL_ADDRESS)
+    print(f"{lp.rate_multipliers=}")
+    _test_balances(lp, metaregistry)
+    _test_calculations(lp)
+
+
+def test_factory_stableswap_pools(local_web3_ethereum_archive: Web3, metaregistry: Contract):
     """
     Test the user-deployed pools deployed by the factory
     """
-    degenbot.set_web3(local_web3_ethereum_full)
+    degenbot.set_web3(local_web3_ethereum_archive)
 
-    stableswap_factory: Contract = local_web3_ethereum_full.eth.contract(
+    stableswap_factory: Contract = local_web3_ethereum_archive.eth.contract(
         address=CURVE_V1_FACTORY_ADDRESS, abi=CURVE_V1_FACTORY_ABI
     )
     pool_count = stableswap_factory.functions.pool_count().call()
@@ -174,13 +210,10 @@ def test_factory_stableswap_pools(local_web3_ethereum_full: Web3, metaregistry: 
             _test_calculations(lp)
         except (BrokenPool, ZeroLiquidityError):
             continue
-        except Exception:
-            print(f"Cannot build pool {pool_address}")
-            raise
 
 
-def test_all_registered_pools(local_web3_ethereum_full: Web3, metaregistry: Contract):
-    degenbot.set_web3(local_web3_ethereum_full)
+def test_all_registered_pools(local_web3_ethereum_archive: Web3, metaregistry: Contract):
+    degenbot.set_web3(local_web3_ethereum_archive)
 
     pool_count = metaregistry.functions.pool_count().call()
 

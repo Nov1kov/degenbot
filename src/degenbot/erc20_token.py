@@ -302,8 +302,10 @@ class Erc20Token(TokenHelper):
     #         print(f"Exception in token_approve: {e}")
     #         raise
 
-    def get_balance(self, address: str) -> int:
-        return self._w3_contract.functions.balanceOf(to_checksum_address(address)).call()
+    def get_balance(self, address: str, block: Optional[int] = None) -> int:
+        return self._w3_contract.functions.balanceOf(to_checksum_address(address)).call(
+            block_identifier=block
+        )
 
     # def update_balance(self):
     #     self.balance = self.get_balance(self._user)
@@ -327,5 +329,5 @@ class EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE(Erc20Token):
         self.name = "Ether Placeholder"
         self.decimals = 18
 
-    def get_balance(self, *args) -> int:
-        return config.get_web3().eth.get_balance(self.address)
+    def get_balance(self, address: str, block: Optional[int] = None) -> int:
+        return config.get_web3().eth.get_balance(address, block_identifier=block)
