@@ -4,16 +4,16 @@
 from threading import Lock
 from typing import Dict, Iterable, List, Optional, Set, Union
 
+import eth_abi
+import web3.exceptions
 from eth_typing import ChecksumAddress
 from eth_utils.address import to_checksum_address
 from hexbytes import HexBytes
-import web3.exceptions
 from web3 import Web3
 from web3.contract import Contract
-import eth_abi
+
 from .. import config
 from ..baseclasses import PoolHelper
-from ..constants import ZERO_ADDRESS
 from ..erc20_token import Erc20Token
 from ..exceptions import (
     EVMRevertError,
@@ -25,11 +25,10 @@ from ..logging import logger
 from ..manager import Erc20TokenHelperManager
 from ..registry import AllPools
 from ..subscription_mixins import Subscriber, SubscriptionMixin
-from .abi import CURVE_METAREGISTRY_ABI, CURVE_V1_POOL_ABI
+from .abi import CURVE_REGISTRY_ABI, CURVE_V1_FACTORY_ABI, CURVE_V1_POOL_ABI
 from .curve_stableswap_dataclasses import CurveStableswapPoolState
 
 CURVE_REGISTRY_ADDRESS = "0x90E00ACe148ca3b23Ac1bC8C240C2a7Dd9c2d7f5"
-CURVE_METAREGISTRY_ADDRESS = "0xF98B45FA17DE75FB1aD0e7aFD971b0ca00e379fC"
 CURVE_V1_FACTORY_ADDRESS = "0x127db66E7F0b16470Bec194d0f496F9Fa065d0A9"
 
 BROKEN_POOLS = (
@@ -57,7 +56,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         self,
         address: Union[ChecksumAddress, str],
         tokens: Optional[List[Erc20Token]] = None,
-        a_coefficient: Optional[int] = None,
         name: Optional[str] = None,
         abi: Optional[list] = None,
         silent: bool = False,
@@ -115,6 +113,13 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         _w3 = config.get_web3()
         _w3_contract = self._w3_contract
+        _w3_registry_contract = _w3.eth.contract(
+            address=CURVE_REGISTRY_ADDRESS, abi=CURVE_REGISTRY_ABI
+        )
+        _w3_factory_contract = _w3.eth.contract(
+            address=CURVE_V1_FACTORY_ADDRESS,
+            abi=CURVE_V1_FACTORY_ABI,
+        )
 
         self.update_block = state_block if state_block is not None else _w3.eth.get_block_number()
 
@@ -157,24 +162,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 types=["uint256"],
             )
 
-        _w3_metaregistry_contract = self.metaregistry
-
-        self.lp_token = Erc20Token(
-            _w3_metaregistry_contract.functions.get_lp_token(self.address).call(
-                block_identifier=self.update_block
-            )
-        )
-
-        self.is_metapool = _w3_metaregistry_contract.functions.is_meta(self.address).call(
-            block_identifier=self.update_block
-        )
-        if self.is_metapool:
-            self.base_pool = CurveStableswapPool(
-                _w3_metaregistry_contract.functions.get_base_pool(self.address).call(
-                    block_identifier=self.update_block
-                )
-            )
-
         self.fee = _w3_contract.functions.fee().call(block_identifier=self.update_block)
         self.a_coefficient = _w3_contract.functions.A().call(block_identifier=self.update_block)
 
@@ -196,32 +183,27 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             self.future_a_coefficient_time = _w3_contract.functions.future_A_time().call(
                 block_identifier=self.update_block
             )
-        except Exception as e:
-            print(f"{type(e)}: {e}")
+        except Exception:
             self.initial_a_coefficient = None
             self.initial_a_coefficient_time = None
             self.future_a_coefficient = None
             self.future_a_coefficient_time = None
         else:
-            print(f"{self.initial_a_coefficient=}")
-            print(f"{self.initial_a_coefficient_time=}")
-            print(f"{self.future_a_coefficient=}")
-            print(f"{self.future_a_coefficient_time=}")
+            logger.debug(f"{self.initial_a_coefficient=}")
+            logger.debug(f"{self.initial_a_coefficient_time=}")
+            logger.debug(f"{self.future_a_coefficient=}")
+            logger.debug(f"{self.future_a_coefficient_time=}")
 
         chain_id = 1 if empty else _w3.eth.chain_id
 
-        token_addresses: List[ChecksumAddress] = [
-            token_address
-            for token_address in _w3_metaregistry_contract.functions.get_coins(self.address).call(
-                block_identifier=self.update_block
-            )
-            if token_address != ZERO_ADDRESS
-        ]
-
-        if "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" in token_addresses:
-            print(
-                f"ETH placeholder found at token position {token_addresses.index('0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE')}"
-            )
+        token_addresses = []
+        for token_id in range(8):
+            try:
+                token_addresses.append(
+                    _w3_contract.functions.coins(token_id).call(block_identifier=self.update_block)
+                )
+            except web3.exceptions.ContractLogicError:
+                break
 
         if tokens is not None:
             # Index the tokens by address
@@ -250,15 +232,60 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         self.underlying_balances: Optional[List[int]] = None
 
         if not empty:
-            self.balances = _w3_metaregistry_contract.functions.get_balances(self.address).call(
-                block_identifier=self.update_block
-            )[: len(self.tokens)]
-            if self.is_metapool:
-                self.underlying_balances = (
-                    _w3_metaregistry_contract.functions.get_underlying_balances(self.address).call(
-                        block_identifier=self.update_block
-                    )[: len(self.tokens)]
+            ...
+            self.balances = [
+                _w3_contract.functions.balances(token_id).call(block_identifier=self.update_block)
+                for token_id, _ in enumerate(self.tokens)
+            ]
+            # if self.is_metapool:
+            #     self.underlying_balances = (
+            #         _w3_metaregistry_contract.functions.get_underlying_balances(self.address).call(
+            #             block_identifier=self.update_block
+            #         )[: len(self.tokens)]
+            #     )
+
+        self.is_metapool = False
+
+        for contract in [_w3_factory_contract, _w3_registry_contract]:
+            try:
+                is_meta, *_ = eth_abi.decode(
+                    types=["bool"],
+                    data=_w3.eth.call(
+                        transaction={
+                            "to": contract.address,
+                            "data": Web3.keccak(text="is_meta(address)")[:4]
+                            + eth_abi.encode(types=["address"], args=[self.address]),
+                        },
+                        block_identifier=self.update_block,
+                    ),
                 )
+            except Exception as e:
+                print(f"{e=}")
+            else:
+                if is_meta is True:
+                    self.is_metapool = True
+                    break
+
+        if self.is_metapool:
+            base_pool_address, *_ = eth_abi.decode(
+                types=["address"],
+                data=_w3.eth.call(
+                    transaction={
+                        "to": _w3_registry_contract.address,
+                        "data": Web3.keccak(text="get_pool_from_lp_token(address)")[:4]
+                        + eth_abi.encode(
+                            types=["address"],
+                            args=[self.tokens[1].address],
+                        ),
+                    },
+                    block_identifier=self.update_block,
+                ),
+            )
+            self.base_pool = CurveStableswapPool(
+                base_pool_address,
+                state_block=self.update_block,
+                silent=silent,
+            )
 
         # For 3pool:
         # rate_multipliers = [
@@ -374,9 +401,13 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             live_balances = [
                 token.get_balance(self.address, block=self.update_block) for token in self.tokens
             ]
-            admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call(
-                block_identifier=self.update_block
-            )[: len(self.tokens)]
+            admin_balances = [
+                self._w3_contract.functions.admin_balances(token_index).call()
+                for token_index, _ in enumerate(self.tokens)
+            ]
+            # admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call(
+            #     block_identifier=self.update_block
+            # )[: len(self.tokens)]
             balances = [
                 pool_balance - admin_balance
                 for pool_balance, admin_balance in zip(live_balances, admin_balances)
@@ -391,9 +422,13 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         if self.address in ("0x3Fb78e61784C9c637D560eDE23Ad57CA1294c14a",):
             live_balances = [token.get_balance(self.address) for token in self.tokens]
-            admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call(
-                block_identifier=self.update_block
-            )[: len(self.tokens)]
+            # admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call(
+            #     block_identifier=self.update_block
+            # )[: len(self.tokens)]
+            admin_balances = [
+                self._w3_contract.functions.admin_balances(token_index).call()
+                for token_index, _ in enumerate(self.tokens)
+            ]
             balances = [
                 pool_balance - admin_balance
                 for pool_balance, admin_balance in zip(live_balances, admin_balances)
@@ -484,6 +519,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0xfa65aa60a9D45623c57D383fb4cf8Fb8b854cC4D",
             "0x7abD51BbA7f9F6Ae87aC77e1eA1C5783adA56e5c",
             "0xA77d09743F77052950C4eb4e6547E9665299BecD",
+            "0xD8A114e127Aa5b9f20284FC7A1bDf2bC6853a28D",
         ):
             rates = list(self.rate_multipliers)
             rates[-1] = self.base_pool._w3_contract.functions.get_virtual_price().call(
@@ -658,6 +694,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0xe7A3b38c39F97E977723bd1239C3470702568e7B",
             "0xD7C10449A6D134A9ed37e2922F8474EAc6E5c100",
             "0xBa3436Fd341F2C8A928452Db3C5A3670d1d5Cc73",
+            "0xAf25fFe6bA5A8a29665adCfA6D30C5Ae56CA0Cd3",
         ):
             rates = self.rate_multipliers
             xp = self._xp_mem(rates, self.balances)
@@ -716,9 +753,13 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 token.get_balance(address=self.address, block=self.update_block)
                 for token in self.tokens
             ]
-            admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call(
-                block_identifier=self.update_block
-            )[: len(self.tokens)]
+            admin_balances = [
+                self._w3_contract.functions.admin_balances(token_index).call()
+                for token_index, _ in enumerate(self.tokens)
+            ]
+            # admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call(
+            #     block_identifier=self.update_block
+            # )[: len(self.tokens)]
             balances = [
                 pool_balance - admin_balance
                 for pool_balance, admin_balance in zip(live_balances, admin_balances)
@@ -795,9 +836,13 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         elif self.address in ("0xEB16Ae0052ed37f479f7fe63849198Df1765a733",):
             live_balances = [token.get_balance(self.address) for token in self.tokens]
-            admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call(
-                block_identifier=self.update_block
-            )[: len(self.tokens)]
+            # admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call(
+            #     block_identifier=self.update_block
+            # )[: len(self.tokens)]
+            admin_balances = [
+                self._w3_contract.functions.admin_balances(token_index).call()
+                for token_index, _ in enumerate(self.tokens)
+            ]
             balances = [
                 pool_balance - admin_balance
                 for pool_balance, admin_balance in zip(live_balances, admin_balances)
@@ -821,9 +866,13 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         elif self.address in ("0xDeBF20617708857ebe4F679508E7b7863a8A8EeE",):
             live_balances = [token.get_balance(self.address) for token in self.tokens]
-            admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call(
-                block_identifier=self.update_block
-            )[: len(self.tokens)]
+            admin_balances = [
+                self._w3_contract.functions.admin_balances(token_index).call()
+                for token_index, _ in enumerate(self.tokens)
+            ]
+            # admin_balances = self.metaregistry.functions.get_admin_balances(self.address).call(
+            #     block_identifier=self.update_block
+            # )[: len(self.tokens)]
             balances = [
                 pool_balance - admin_balance
                 for pool_balance, admin_balance in zip(live_balances, admin_balances)
@@ -1270,8 +1319,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         amp = self._A() if _amp is None else _amp
         D = self._get_D_with_A_precision(xp, amp) if _D is None else _D
-        print(f"{amp=}")
-        print(f"{D=}")
 
         S_ = 0
         _x = 0
@@ -1446,6 +1493,36 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             # convergence typically occurs in 4 rounds or less, this should be unreachable!
             # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
             raise EVMRevertError
+
+        elif self.address in ("0xD8A114e127Aa5b9f20284FC7A1bDf2bC6853a28D",):
+            S = sum(_xp)
+            if S == 0:
+                return 0
+
+            D = S
+            Ann = _amp * N_COINS
+            for _ in range(255):
+                D_P = D
+                for x in _xp:
+                    D_P = (
+                        D_P * D // (x * N_COINS)
+                    )  # If division by 0, this will be borked: only withdrawal will work. And that is good
+                Dprev = D
+                D = (
+                    (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                    * D
+                    // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+                )
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+            # convergence typically occurs in 4 rounds or less, this should be unreachable!
+            # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
+            raise
 
         elif self.address in ("0x4e0915C88bC70750D68C481540F081fEFaF22273"):
             S = sum(_xp)
@@ -1893,6 +1970,34 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
             raise
 
+        elif self.address in ("0xAf25fFe6bA5A8a29665adCfA6D30C5Ae56CA0Cd3",):
+            S = sum(_xp)
+            if S == 0:
+                return 0
+
+            D = S
+            Ann = _amp * N_COINS
+            for _ in range(255):
+                D_P = D
+                for x in _xp:
+                    D_P = D_P * D // (x * N_COINS)
+                Dprev = D
+                D = (
+                    (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                    * D
+                    // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+                )
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+            # convergence typically occurs in 4 rounds or less, this should be unreachable!
+            # if it does happen the pool is borked and LPs can withdraw via `remove_liquidity`
+            raise
+
         elif self.address in ("0x6870F9b4DD5d34C7FC53D0d85D9dBd1aAB339BF7",):
             S = sum(_xp)
             if S == 0:
@@ -1953,13 +2058,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             abi=self.abi,
         )
 
-    @property
-    def metaregistry(self) -> Contract:
-        return config.get_web3().eth.contract(
-            address=CURVE_METAREGISTRY_ADDRESS,
-            abi=CURVE_METAREGISTRY_ABI,
-        )
-
     def calculate_tokens_out_from_tokens_in(
         self,
         token_in: Erc20Token,
@@ -1970,6 +2068,14 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         """
         Calculates the expected token OUTPUT for a target INPUT at current pool reserves.
         """
+
+        if any(
+            [
+                self.balances[self.tokens.index(token_in) == 0],
+                self.balances[self.tokens.index(token_out) == 0],
+            ]
+        ):
+            raise ZeroSwapError("One or more of the token balances is zero")
 
         if token_in_quantity <= 0:
             raise ZeroSwapError("token_in_quantity must be positive")

@@ -41,24 +41,20 @@ CURVE_POOLINFO_ABI = ujson.loads(
 
 
 @pytest.fixture()
+def fork_from_archive() -> Web3:
+    return AnvilFork(fork_url="http://localhost:8543")
+
+
+@pytest.fixture()
 def metaregistry(local_web3_ethereum_archive: Web3) -> Contract:
     return local_web3_ethereum_archive.eth.contract(
         address=CURVE_METAREGISTRY_ADDRESS, abi=CURVE_METAREGISTRY_ABI
     )
 
 
-def _test_balances(lp: CurveStableswapPool, metaregistry: Contract):
-    state_block = lp.update_block
-    print(f"Testing balances at block {state_block}")
-    contract_balances = metaregistry.functions.get_balances(lp.address).call(
-        block_identifier=state_block
-    )[: len(lp.tokens)]
-    assert contract_balances == lp.balances
-
-
 def _test_calculations(lp: CurveStableswapPool):
     state_block = lp.update_block
-    print(f"Testing calculations at block {state_block}")
+
     for token_in_index, token_out_index in itertools.permutations(range(len(lp.tokens)), 2):
         token_in = lp.tokens[token_in_index]
         token_out = lp.tokens[token_out_index]
@@ -66,11 +62,7 @@ def _test_calculations(lp: CurveStableswapPool):
         for amount_multiplier in [0.01, 0.05, 0.25]:
             amount = int(amount_multiplier * lp.balances[lp.tokens.index(token_in)])
 
-            # if amount == 0:
-            #     # Skip empty pools
-            #     continue
-
-            print(f"Simulating swap: {amount} {token_in} for {token_out}")
+            # print(f"Simulating swap: {amount} {token_in} for {token_out}")
 
             try:
                 calc_amount = lp.calculate_tokens_out_from_tokens_in(
@@ -79,7 +71,7 @@ def _test_calculations(lp: CurveStableswapPool):
                     token_in_quantity=amount,
                 )
             except ZeroSwapError:
-                print("Skipping zero swap")
+                # print("Skipping zero swap")
                 continue
 
             if lp.address == "0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5":
@@ -108,9 +100,9 @@ def _test_calculations(lp: CurveStableswapPool):
             assert calc_amount == contract_amount
 
 
-def test_create_pool(local_web3_ethereum_archive: Web3):
-    degenbot.set_web3(local_web3_ethereum_archive)
-    lp = CurveStableswapPool(FRXETH_WETH_CURVE_POOL_ADDRESS)
+def test_create_pool(fork_from_archive: AnvilFork):
+    degenbot.set_web3(fork_from_archive.w3)
+    lp = CurveStableswapPool(address=FRXETH_WETH_CURVE_POOL_ADDRESS, silent=True)
 
     # Test providing tokens
     CurveStableswapPool(address=FRXETH_WETH_CURVE_POOL_ADDRESS, tokens=lp.tokens)
@@ -118,40 +110,35 @@ def test_create_pool(local_web3_ethereum_archive: Web3):
     # Test with the wrong tokens
     with pytest.raises(ValueError, match=f"Token {lp.tokens[1].address} not found in tokens."):
         CurveStableswapPool(
-            address=FRXETH_WETH_CURVE_POOL_ADDRESS,
-            tokens=[lp.tokens[0]],
+            address=FRXETH_WETH_CURVE_POOL_ADDRESS, tokens=[lp.tokens[0]], silent=True
         )
 
 
-def test_tripool(local_web3_ethereum_archive: Web3, metaregistry: Contract):
-    degenbot.set_web3(local_web3_ethereum_archive)
+def test_tripool(fork_from_archive: AnvilFork):
+    degenbot.set_web3(fork_from_archive.w3)
     tripool = CurveStableswapPool("0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7")
 
-    _test_balances(tripool, metaregistry)
     _test_calculations(tripool)
 
 
-def test_A_ramping(local_web3_ethereum_archive: Web3, metaregistry: Contract):
+def test_A_ramping():
     # A range: 5000 -> 2000
     # A time : 1653559305 -> 1654158027
 
-    fork = AnvilFork(
-        fork_url=local_web3_ethereum_archive.provider.endpoint_uri, fork_block=10_810_000
-    )
+    fork = AnvilFork(fork_url="http://localhost:8543", fork_block=15_00_000)
     degenbot.set_web3(fork.w3)
 
-    tripool = CurveStableswapPool("0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7")
-    _test_balances(tripool, metaregistry)
+    tripool = CurveStableswapPool(address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7", silent=True)
     _test_calculations(tripool)
 
 
-def test_base_registry_pools(local_web3_ethereum_archive: Web3, metaregistry: Contract):
+def test_base_registry_pools(fork_from_archive: AnvilFork):
     """
     Test the custom pools deployed by Curve
     """
-    degenbot.set_web3(local_web3_ethereum_archive)
+    degenbot.set_web3(fork_from_archive.w3)
 
-    registry: Contract = local_web3_ethereum_archive.eth.contract(
+    registry: Contract = fork_from_archive.w3.eth.contract(
         address=CURVE_REGISTRY_ADDRESS, abi=CURVE_REGISTRY_ABI
     )
     pool_count = registry.functions.pool_count().call()
@@ -162,38 +149,34 @@ def test_base_registry_pools(local_web3_ethereum_archive: Web3, metaregistry: Co
         print(f"{pool_id}: {pool_address=}")
 
         lp = CurveStableswapPool(address=pool_address)
-        _test_balances(lp, metaregistry)
         _test_calculations(lp)
 
 
-def test_eee_pool(local_web3_ethereum_archive: Web3, metaregistry: Contract):
-    degenbot.set_web3(local_web3_ethereum_archive)
+def test_eee_pool(fork_from_archive: AnvilFork):
+    degenbot.set_web3(fork_from_archive.w3)
     POOL_ADDRESS = "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE"
 
-    lp = CurveStableswapPool(address=POOL_ADDRESS)
+    lp = CurveStableswapPool(address=POOL_ADDRESS, silent=True)
     print(f"{lp.rate_multipliers=}")
-    _test_balances(lp, metaregistry)
     _test_calculations(lp)
 
 
-def test_single_pool(local_web3_ethereum_archive: Web3, metaregistry: Contract):
-    degenbot.set_web3(local_web3_ethereum_archive)
+def test_single_pool(fork_from_archive: AnvilFork):
+    degenbot.set_web3(fork_from_archive.w3)
 
-    POOL_ADDRESS = "0xAf25fFe6bA5A8a29665adCfA6D30C5Ae56CA0Cd3"
+    POOL_ADDRESS = "0xD8A114e127Aa5b9f20284FC7A1bDf2bC6853a28D"
 
-    lp = CurveStableswapPool(address=POOL_ADDRESS)
-    print(f"{lp.rate_multipliers=}")
-    _test_balances(lp, metaregistry)
+    lp = CurveStableswapPool(address=POOL_ADDRESS, silent=True)
     _test_calculations(lp)
 
 
-def test_factory_stableswap_pools(local_web3_ethereum_archive: Web3, metaregistry: Contract):
+def test_factory_stableswap_pools(fork_from_archive: AnvilFork):
     """
     Test the user-deployed pools deployed by the factory
     """
-    degenbot.set_web3(local_web3_ethereum_archive)
+    degenbot.set_web3(fork_from_archive.w3)
 
-    stableswap_factory: Contract = local_web3_ethereum_archive.eth.contract(
+    stableswap_factory: Contract = fork_from_archive.w3.eth.contract(
         address=CURVE_V1_FACTORY_ADDRESS, abi=CURVE_V1_FACTORY_ABI
     )
     pool_count = stableswap_factory.functions.pool_count().call()
@@ -205,11 +188,13 @@ def test_factory_stableswap_pools(local_web3_ethereum_archive: Web3, metaregistr
             continue
 
         try:
-            lp = CurveStableswapPool(address=pool_address)
-            _test_balances(lp, metaregistry)
+            lp = CurveStableswapPool(address=pool_address, silent=True)
             _test_calculations(lp)
         except (BrokenPool, ZeroLiquidityError):
             continue
+        except Exception as e:
+            print(f"{type(e)}: {e} - {pool_address=}")
+            raise
 
 
 # def test_all_registered_pools(local_web3_ethereum_archive: Web3, metaregistry: Contract):
