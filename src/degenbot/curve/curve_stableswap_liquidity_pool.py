@@ -685,20 +685,21 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x59Ab5a5b5d617E478a2479B0cAD80DA7e2831492",
             "0xBfAb6FA95E0091ed66058ad493189D2cB29385E6",
         ):
-            live_balances = [
-                token.get_balance(address=self.address, block=self.update_block)
-                for token in self.tokens
-            ]
-            admin_balances = [
-                self._w3_contract.functions.admin_balances(token_index).call()
-                for token_index, _ in enumerate(self.tokens)
-            ]
+            ETH_COIN_INDEX = 0
+            DERIVATIVE_ETH_COIN_INDEX = 1
+
             balances = [
-                pool_balance - admin_balance
-                for pool_balance, admin_balance in zip(live_balances, admin_balances)
+                self.tokens[ETH_COIN_INDEX].get_balance(
+                    address=self.address, block=self.update_block
+                )
+                - self._w3_contract.functions.admin_balances(ETH_COIN_INDEX).call(),
+                self.tokens[DERIVATIVE_ETH_COIN_INDEX].get_balance(
+                    address=self.address, block=self.update_block
+                )
+                - self._w3_contract.functions.admin_balances(DERIVATIVE_ETH_COIN_INDEX).call(),
             ]
             rates = self._stored_rates_from_oracle()
-            xp = self._xp_mem(rates, self.balances)
+            xp = self._xp_mem(rates=rates, balances=balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
