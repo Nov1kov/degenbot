@@ -462,34 +462,22 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             return (dy - fee) * self.PRECISION // rates[j]
 
         elif self.is_metapool:
+            rates = self.rate_multipliers.copy()
             if self.address in (
                 "0xC61557C5d177bd7DC889A3b621eEC333e168f68A",
                 "0x8038C01A0390a8c547446a0b2c18fc9aEFEcc10c",
             ):
-                _rates = [
-                    10**self.PRECISION_DECIMALS,
-                    self.base_pool._w3_contract.functions.get_virtual_price().call(
-                        block_identifier=self.update_block
-                    ),
-                ]
-                xp = self._xp_mem(rates=_rates, balances=self.balances)
-                x = xp[i] + (dx * _rates[i] // self.PRECISION)
-                y = self._get_y(i, j, x, xp)
-                dy = xp[j] - y - 1
-                _fee = self.fee * dy // self.FEE_DENOMINATOR
-                return (dy - _fee) * self.PRECISION // _rates[j]
-            else:
-                rates = list(self.rate_multipliers)
-                rates[-1] = self.base_pool._w3_contract.functions.get_virtual_price().call(
-                    block_identifier=self.update_block
-                )
-                xp = self._xp_mem(rates=rates, balances=self.balances)
-                x = xp[i] + (dx * rates[i] // self.PRECISION)
-                y = self._get_y(i, j, x, xp)
-                dy = xp[j] - y - 1
-                _fee = self.fee * dy // self.FEE_DENOMINATOR
+                rates[0] = 10**self.PRECISION_DECIMALS
+            rates[1] = self.base_pool._w3_contract.functions.get_virtual_price().call(
+                block_identifier=self.update_block
+            )
 
-                return (dy - _fee) * self.PRECISION // rates[j]
+            xp = self._xp_mem(rates=rates, balances=self.balances)
+            x = xp[i] + (dx * rates[i] // self.PRECISION)
+            y = self._get_y(i, j, x, xp)
+            dy = xp[j] - y - 1
+            _fee = self.fee * dy // self.FEE_DENOMINATOR
+            return (dy - _fee) * self.PRECISION // rates[j]
 
         elif self.address == "0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5":
             N_COINS = len(self.tokens)
