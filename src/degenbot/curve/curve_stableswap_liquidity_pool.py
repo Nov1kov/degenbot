@@ -413,7 +413,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 for pool_balance, admin_balance in zip(live_balances, admin_balances)
             ]
             rates = self.rate_multipliers
-            xp = self._xp_mem(rates, balances)
+            xp = self._xp_mem(rates=rates, balances=balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
@@ -431,7 +431,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 for pool_balance, admin_balance in zip(live_balances, admin_balances)
             ]
             rates = self.rate_multipliers
-            xp = self._xp_mem(rates, balances)
+            xp = self._xp_mem(rates=rates, balances=balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
@@ -489,7 +489,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                         block_identifier=self.update_block
                     ),
                 ]
-                xp = self._xp_mem(rates=_rates)
+                xp = self._xp_mem(rates=_rates, balances=self.balances)
                 x = xp[i] + (dx * _rates[i] // self.PRECISION)
                 y = self._get_y(i, j, x, xp)
                 dy = xp[j] - y - 1
@@ -500,7 +500,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 rates[-1] = self.base_pool._w3_contract.functions.get_virtual_price().call(
                     block_identifier=self.update_block
                 )
-                xp = self._xp_mem(rates=rates)
+                xp = self._xp_mem(rates=rates, balances=self.balances)
                 x = xp[i] + (dx * rates[i] // self.PRECISION)
                 y = self._get_y(i, j, x, xp)
                 dy = xp[j] - y - 1
@@ -600,7 +600,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x4CA9b3063Ec5866A4B82E437059D2C43d1be596F",
         ):
             rates = self.rate_multipliers
-            xp = self._xp_mem(rates=rates)
+            xp = self._xp_mem(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = (xp[j] - y - 1) * self.PRECISION // rates[j]
@@ -641,16 +641,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0xFD5dB7463a3aB53fD211b4af195c5BCCC1A03890",
         ):
             rates = self.rate_multipliers
-            xp = self._xp_mem(rates, self.balances)
-            x = xp[i] + (dx * rates[i] // self.PRECISION)
-            y = self._get_y(i, j, x, xp)
-            dy = xp[j] - y - 1
-            fee = self.fee * dy // self.FEE_DENOMINATOR
-            return (dy - fee) * self.PRECISION // rates[j]
-
-        elif self.address in ("0x4CA9b3063Ec5866A4B82E437059D2C43d1be596F",):
-            rates = self.rate_multipliers
-            xp = self._xp_mem(rates, self.balances)
+            xp = self._xp_mem(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
@@ -712,7 +703,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x52EA46506B9CC5Ef470C5bf89f17Dc28bB35D85C",
         ):
             rates = self._stored_rates_from_ctokens()
-            xp = self._xp_mem(rates)
+            xp = self._xp_mem(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = (xp[j] - y) * self.PRECISION // rates[j]
@@ -722,7 +713,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         elif self.address in ("0x2dded6Da1BF5DBdF597C45fcFaa3194e53EcfeAF",):
             assert self.precision_multipliers == [1, 10**12, 10**12]
             rates = self._stored_rates_from_cytokens()
-            xp = self._xp_mem(rates)
+            xp = self._xp_mem(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
@@ -730,8 +721,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         elif self.address in ("0x06364f10B501e868329afBc005b3492902d6C763",):
             rates = self._stored_rates_from_ytokens()
-
-            xp = self._xp_mem(rates, self.balances)
+            xp = self._xp_mem(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = (xp[j] - y - 1) * self.PRECISION // rates[j]
@@ -743,7 +733,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x45F783CCE6B7FF23B2ab2D70e416cdb7D6055f51",
         ):
             rates = self._stored_rates_from_ytokens()
-            xp = self._xp_mem(rates, self.balances)
+            xp = self._xp_mem(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = (xp[j] - y) * self.PRECISION // rates[j]
@@ -752,7 +742,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         elif self.address in ("0xA96A65c051bF88B4095Ee1f2451C2A9d43F53Ae2",):
             rates = self._stored_rates_from_aeth()
-            xp = self._xp_mem(rates, self.balances)
+            xp = self._xp_mem(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y
@@ -761,7 +751,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         elif self.address in ("0xF9440930043eb3997fc70e1339dBb11F341de7A8",):
             rates = self._stored_rates_from_reth()
-            xp = self._xp_mem(rates)
+            xp = self._xp_mem(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y
@@ -827,7 +817,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             return dy - _fee
         else:
             rates = self.rate_multipliers
-            xp = self._xp_mem(rates, self.balances)
+            xp = self._xp_mem(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
@@ -1306,14 +1296,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
     def _xp_mem(
         self,
-        rates: Optional[List[int]] = None,
-        balances: Optional[List[int]] = None,
+        rates: List[int],
+        balances: List[int],
     ) -> List[int]:
-        if rates is None:
-            rates = self.rate_multipliers
-        if balances is None:
-            balances = self.balances
-
         return [rate * balance // self.PRECISION for rate, balance in zip(rates, balances)]
 
     def calculate_tokens_out_from_tokens_in(
