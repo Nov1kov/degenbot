@@ -400,28 +400,11 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x1005F7406f32a61BD760CfA14aCCd2737913d546",
             "0x6A274dE3e2462c7614702474D64d376729831dCa",
             "0xb9446c4Ef5EBE66268dA6700D26f96273DE3d571",
+            "0x3Fb78e61784C9c637D560eDE23Ad57CA1294c14a",
         ):
             live_balances = [
                 token.get_balance(self.address, block=self.update_block) for token in self.tokens
             ]
-            admin_balances = [
-                self._w3_contract.functions.admin_balances(token_index).call()
-                for token_index, _ in enumerate(self.tokens)
-            ]
-            balances = [
-                pool_balance - admin_balance
-                for pool_balance, admin_balance in zip(live_balances, admin_balances)
-            ]
-            rates = self.rate_multipliers
-            xp = self._xp_mem(rates=rates, balances=balances)
-            x = xp[i] + (dx * rates[i] // self.PRECISION)
-            y = self._get_y(i, j, x, xp)
-            dy = xp[j] - y - 1
-            fee = self.fee * dy // self.FEE_DENOMINATOR
-            return (dy - fee) * self.PRECISION // rates[j]
-
-        if self.address in ("0x3Fb78e61784C9c637D560eDE23Ad57CA1294c14a",):
-            live_balances = [token.get_balance(self.address) for token in self.tokens]
             admin_balances = [
                 self._w3_contract.functions.admin_balances(token_index).call()
                 for token_index, _ in enumerate(self.tokens)
