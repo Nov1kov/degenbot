@@ -597,6 +597,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714",
             "0x93054188d876f558f4a66B2EF1d97d16eDf0895B",
             "0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            "0x4CA9b3063Ec5866A4B82E437059D2C43d1be596F",
         ):
             rates = self.rate_multipliers
             xp = self._xp_mem(rates=rates)
