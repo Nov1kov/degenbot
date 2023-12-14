@@ -636,11 +636,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
             fee = self.fee * dy // self.FEE_DENOMINATOR
-            # print(f"{xp=}")
-            # print(f"{x=}")
-            # print(f"{y=}")
-            # print(f"{dy=}")
-            # print(f"{fee=}")
             return dy - fee
 
         elif self.address in (
@@ -1209,7 +1204,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
             result.append(precision_multiplier * rate)
 
-        print(f"{result=}")
         return result
 
     def _stored_rates_from_reth(self):
