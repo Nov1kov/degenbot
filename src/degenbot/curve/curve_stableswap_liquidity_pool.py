@@ -2,7 +2,7 @@
 
 
 from threading import Lock
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Union, Tuple
 
 import eth_abi
 import web3.exceptions
@@ -32,9 +32,13 @@ CURVE_V1_FACTORY_ADDRESS = to_checksum_address("0x127db66E7F0b16470Bec194d0f496F
 
 BROKEN_POOLS = (
     "0x1F71f05CF491595652378Fe94B7820344A551B8E",
-    "0xD652c40fBb3f06d6B58Cb9aa9CFF063eE63d465D",
+    "0x2009f19A8B46642E92Ea19adCdFB23ab05fC20A6",
     "0x28B0Cf1baFB707F2c6826d10caf6DD901a6540C5",
+    "0x46f5ab27914A670CFE260A2DEDb87f84c264835f",
     "0x84997FAFC913f1613F51Bb0E2b5854222900514B",
+    "0x883F7d4B6B24F8BF1dB980951Ad08930D9AEC6Bc",
+    "0xD652c40fBb3f06d6B58Cb9aa9CFF063eE63d465D",
+    "0x2206cF41E7Db9393a3BcbB6Ad35d344811523b46",
 )
 
 
@@ -160,15 +164,13 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         else:
             _token_manager = Erc20TokenHelperManager(chain_id)
 
-            self.tokens = tuple(
-                [
-                    _token_manager.get_erc20token(
-                        address=token_address,
-                        silent=silent,
-                    )
-                    for token_address in token_addresses
-                ]
-            )
+            self.tokens = [
+                _token_manager.get_erc20token(
+                    address=token_address,
+                    silent=silent,
+                )
+                for token_address in token_addresses
+            ]
 
         self.balances: List[int] = []
         self.underlying_balances: Optional[List[int]] = None
@@ -179,8 +181,23 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 for token_id, _ in enumerate(self.tokens)
             ]
 
-        self.is_metapool = False
+        lp_token_address, *_ = eth_abi.decode(
+            types=["address"],
+            data=_w3.eth.call(
+                transaction={
+                    "to": _w3_registry_contract.address,
+                    "data": Web3.keccak(text="get_lp_token(address)")[:4]
+                    + eth_abi.encode(types=["address"], args=[self.address]),
+                },
+                block_identifier=self.update_block,
+            ),
+        )
+        self.lp_token = _token_manager.get_erc20token(
+            address=lp_token_address,
+            silent=silent,
+        )
 
+        self.is_metapool = False
         for contract in [_w3_factory_contract, _w3_registry_contract]:
             try:
                 is_meta, *_ = eth_abi.decode(
@@ -197,29 +214,31 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             except Exception:
                 continue
             else:
-                if is_meta is False:
-                    continue
-                base_pool_address, *_ = eth_abi.decode(
-                    types=["address"],
-                    data=_w3.eth.call(
-                        transaction={
-                            "to": _w3_registry_contract.address,
-                            "data": Web3.keccak(text="get_pool_from_lp_token(address)")[:4]
-                            + eth_abi.encode(
-                                types=["address"],
-                                args=[self.tokens[1].address],
-                            ),
-                        },
-                        block_identifier=self.update_block,
-                    ),
-                )
-                self.base_pool = CurveStableswapPool(
-                    base_pool_address,
-                    state_block=self.update_block,
-                    silent=silent,
-                )
-                self.is_metapool = True
-                break
+                if is_meta is True:
+                    self.is_metapool = True
+                    break
+
+        if self.is_metapool is True:
+            base_pool_address, *_ = eth_abi.decode(
+                types=["address"],
+                data=_w3.eth.call(
+                    transaction={
+                        "to": _w3_registry_contract.address,
+                        "data": Web3.keccak(text="get_pool_from_lp_token(address)")[:4]
+                        + eth_abi.encode(
+                            types=["address"],
+                            args=[self.tokens[1].address],
+                        ),
+                    },
+                    block_identifier=self.update_block,
+                ),
+            )
+            self.base_pool = CurveStableswapPool(
+                base_pool_address,
+                state_block=self.update_block,
+                silent=silent,
+            )
+            self.tokens_underlying = [self.tokens[0]] + self.base_pool.tokens
 
         # 3pool example
         # rate_multipliers = [
@@ -239,6 +258,8 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         if self.address == "0xA2B47E3D5c44877cca798226B7B8118F9BFb7A56":
             self.USE_LENDING = [True, True]
             self.precision_multipliers = [1, 10**12]
+        elif self.address == "0xDcEF968d416a41Cdac0ED8702fAC8128A64241A2":
+            self.precision_multipliers = [1, 1000000000000]
         elif self.address == "0x52EA46506B9CC5Ef470C5bf89f17Dc28bB35D85C":
             self.USE_LENDING = [True, True, False]
             self.precision_multipliers = [1, 10**12, 10**12]
@@ -372,6 +393,31 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         return scaled_A
 
+    def _get_scaled_redemption_price(self):
+        REDEMPTION_PRICE_SCALE = 10**9
+
+        snap_contract_address, *_ = eth_abi.decode(
+            types=["address"],
+            data=config.get_web3().eth.call(
+                transaction={
+                    "to": self.address,
+                    "data": Web3.keccak(text="redemption_price_snap()")[:4],
+                },
+                block_identifier=self.update_block,
+            ),
+        )
+        rate, *_ = eth_abi.decode(
+            types=["uint256"],
+            data=config.get_web3().eth.call(
+                transaction={
+                    "to": to_checksum_address(snap_contract_address),
+                    "data": Web3.keccak(text="snappedRedemptionPrice()")[:4],
+                },
+                block_identifier=self.update_block,
+            ),
+        )
+        return rate // REDEMPTION_PRICE_SCALE
+
     def _get_dy(self, i: int, j: int, dx: int) -> int:
         """
         @notice Calculate the current output dy given input dx
@@ -422,39 +468,18 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             return (dy - fee) * self.PRECISION // rates[j]
 
         elif self.address == "0x618788357D0EBd8A37e763ADab3bc575D54c2C7d":
-
-            def _get_scaled_redemption_price():
-                REDEMPTION_PRICE_SCALE = 10**9
-
-                snap_contract_address, *_ = eth_abi.decode(
-                    types=["address"],
-                    data=config.get_web3().eth.call(
-                        transaction={
-                            "to": self.address,
-                            "data": Web3.keccak(text="redemption_price_snap()")[:4],
-                        },
-                        block_identifier=self.update_block,
-                    ),
-                )
-                rate, *_ = eth_abi.decode(
-                    types=["uint256"],
-                    data=config.get_web3().eth.call(
-                        transaction={
-                            "to": to_checksum_address(snap_contract_address),
-                            "data": Web3.keccak(text="snappedRedemptionPrice()")[:4],
-                        },
-                        block_identifier=self.update_block,
-                    ),
-                )
-                return rate // REDEMPTION_PRICE_SCALE
-
             rates = [
-                _get_scaled_redemption_price(),
-                self.base_pool._w3_contract.functions.get_virtual_price().call(
-                    block_identifier=self.update_block
-                ),
+                self._get_scaled_redemption_price(),
+                self._get_virtual_price(),
+                # self.base_pool._w3_contract.functions.get_virtual_price().call(
+                #     block_identifier=self.update_block
+                # ),
             ]
-            xp = [rate * balance // self.PRECISION for rate, balance in zip(rates, self.balances)]
+            xp = self._xp_mem(rates=rates, balances=self.balances)
+            # TODO: remove assert after verification
+            assert xp == [
+                rate * balance // self.PRECISION for rate, balance in zip(rates, self.balances)
+            ]
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
@@ -468,9 +493,11 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 "0x8038C01A0390a8c547446a0b2c18fc9aEFEcc10c",
             ):
                 rates[0] = 10**self.PRECISION_DECIMALS
-            rates[1] = self.base_pool._w3_contract.functions.get_virtual_price().call(
-                block_identifier=self.update_block
-            )
+
+            rates[1] = self._get_virtual_price()
+            # rates[1] = self.base_pool._w3_contract.functions.get_virtual_price().call(
+            #     block_identifier=self.update_block
+            # )
 
             xp = self._xp_mem(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
@@ -790,6 +817,363 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - fee) * self.PRECISION // rates[j]
 
+    def _get_virtual_price(self):
+        vp_rate, *_ = (
+            self.base_pool._w3_contract.functions.get_virtual_price().call(
+                block_identifier=self.update_block
+            ),
+        )
+        return vp_rate
+
+    def _calc_token_amount(self, amounts: List[int], deposit: bool) -> int:
+        """
+        Simplified method to calculate addition or reduction in token supply at
+        deposit or withdrawal without taking fees into account (but looking at
+        slippage).
+        Needed to prevent front-running, not for precise calculations!
+        """
+
+        N_COINS = len(self.tokens)
+
+        _balances = self.balances.copy()
+        xp = self._xp_mem(rates=self.rate_multipliers, balances=_balances)
+        amp = self._A()
+        D0 = self._get_D(_xp=xp, _amp=amp)
+
+        for i in range(N_COINS):
+            if deposit:
+                _balances[i] += amounts[i]
+            else:
+                _balances[i] -= amounts[i]
+
+        xp = self._xp_mem(rates=self.rate_multipliers, balances=_balances)
+        D1: int = self._get_D(xp, amp)
+        token_amount: int = self.lp_token.get_total_supply(block=self.update_block)
+
+        if deposit:
+            diff = D1 - D0
+        else:
+            diff = D0 - D1
+
+        return diff * token_amount // D0
+
+    def _calc_withdraw_one_coin(self, _token_amount: int, i: int) -> Tuple[int, ...]:
+        if self.address in (
+            "0xDcEF968d416a41Cdac0ED8702fAC8128A64241A2",
+            "0xf253f83AcA21aAbD2A20553AE0BF7F65C755A07F",
+        ):
+            N_COINS = len(self.tokens)
+
+            # First, need to calculate
+            # * Get current D
+            # * Solve Eqn against y_i for D - _token_amount
+            amp = self._A()
+            xp = self._xp_mem(rates=self.rate_multipliers, balances=self.balances)
+            D0 = self._get_D(xp, amp)
+
+            total_supply = self.lp_token.get_total_supply()
+            D1 = D0 - _token_amount * D0 // total_supply
+            new_y = self._get_y_D(amp, i, xp, D1)
+            xp_reduced = xp.copy()
+            fee = self.fee * N_COINS // (4 * (N_COINS - 1))
+            for j in range(N_COINS):
+                dx_expected = 0
+                if j == i:
+                    dx_expected = xp[j] * D1 // D0 - new_y
+                else:
+                    dx_expected = xp[j] - xp[j] * D1 // D0
+                xp_reduced[j] -= fee * dx_expected // self.FEE_DENOMINATOR
+
+            dy = xp_reduced[i] - self._get_y_D(amp, i, xp_reduced, D1)
+            precisions = self.precision_multipliers
+            dy = (dy - 1) // precisions[i]  # Withdraw less to account for rounding errors
+            dy_0 = (xp[i] - new_y) // precisions[i]  # w/o fees
+
+            return dy, dy_0 - dy, total_supply
+
+        elif self.address == "0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7":
+            # ref: https://etherscan.io/address/0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7#code
+            N_COINS = len(self.tokens)
+
+            # First, need to calculate
+            # * Get current D
+            # * Solve Eqn against y_i for D - _token_amount
+            amp = self._A()
+            _fee = self.fee * N_COINS // (4 * (N_COINS - 1))
+            precisions = self.precision_multipliers
+
+            total_supply = self.lp_token.get_total_supply(block=self.update_block)
+
+            xp = self._xp_mem(rates=self.rate_multipliers, balances=self.balances)
+
+            D0 = self._get_D(xp, amp)
+            D1 = D0 - _token_amount * D0 // total_supply
+            xp_reduced = xp.copy()
+
+            new_y = self._get_y_D(amp, i, xp, D1)
+            dy_0 = (xp[i] - new_y) // precisions[i]  # w/o fees
+
+            for j, _ in enumerate(self.tokens):
+                dx_expected = 0
+                if j == i:
+                    dx_expected = xp[j] * D1 // D0 - new_y
+                else:
+                    dx_expected = xp[j] - xp[j] * D1 // D0
+                xp_reduced[j] -= _fee * dx_expected // self.FEE_DENOMINATOR
+
+            dy = xp_reduced[i] - self._get_y_D(amp, i, xp_reduced, D1)
+            dy = (dy - 1) // precisions[i]  # Withdraw less to account for rounding errors
+            return dy, dy_0 - dy
+
+        else:
+            raise Exception("withdrawal method not implemented")
+
+    def _get_dy_underlying(self, i: int, j: int, dx: int) -> int:
+        if self.address == "0x618788357D0EBd8A37e763ADab3bc575D54c2C7d":
+            BASE_N_COINS = len(self.base_pool.tokens)
+            MAX_COIN = len(self.tokens) - 1
+            REDEMPTION_COIN = 0
+
+            # dx and dy in underlying units
+            vp_rate = self._get_virtual_price()
+            rates = [
+                self._get_scaled_redemption_price(),
+                vp_rate,
+            ]
+            xp: List[int] = self._xp_mem(rates=rates, balances=self.balances)
+
+            # Use base_i or base_j if they are >= 0
+            base_i = i - MAX_COIN
+            base_j = j - MAX_COIN
+            meta_i = MAX_COIN
+            meta_j = MAX_COIN
+            if base_i < 0:
+                meta_i = i
+            if base_j < 0:
+                meta_j = j
+
+            x = 0
+            if base_i < 0:
+                x = xp[i] + (dx * self._get_scaled_redemption_price() // self.PRECISION)
+            else:
+                if base_j < 0:
+                    # i is from BasePool
+                    # At first, get the amount of pool tokens
+                    base_inputs = [0] * BASE_N_COINS
+                    base_inputs[base_i] = dx
+                    # Token amount transformed to underlying "dollars"
+                    x = (
+                        self.base_pool._calc_token_amount(amounts=base_inputs, deposit=True)
+                        * vp_rate
+                        // self.PRECISION
+                    )
+                    # Accounting for deposit/withdraw fees approximately
+                    x -= x * self.base_pool.fee // (2 * self.FEE_DENOMINATOR)
+                    # Adding number of pool tokens
+                    x += xp[MAX_COIN]
+                else:
+                    # If both are from the base pool
+                    return self.base_pool._get_dy(base_i, base_j, dx)
+
+            # This pool is involved only when in-pool assets are used
+            y = self._get_y(meta_i, meta_j, x, xp)
+            dy = xp[meta_j] - y - 1
+            dy = dy - self.fee * dy // self.FEE_DENOMINATOR
+            if j == REDEMPTION_COIN:
+                dy = (dy * self.PRECISION) // self._get_scaled_redemption_price()
+
+            # If output is going via the metapool
+            if base_j >= 0:
+                # j is from BasePool
+                # The fee is already accounted for
+                dy, *_ = self.base_pool._calc_withdraw_one_coin(
+                    dy * self.PRECISION // vp_rate, base_j
+                )
+
+            return dy
+
+        elif self.address == "0xC61557C5d177bd7DC889A3b621eEC333e168f68A":
+            BASE_N_COINS = len(self.base_pool.tokens)
+            MAX_COIN = len(self.tokens) - 1
+
+            rates = [
+                self.PRECISION,  # <----- self.rate_multiplier?
+                self._get_virtual_price(),
+            ]
+            xp = self._xp_mem(rates=rates, balances=self.balances)
+
+            x = 0
+            base_i = 0
+            base_j = 0
+            meta_i = 0
+            meta_j = 0
+
+            if i != 0:
+                base_i = i - MAX_COIN
+                meta_i = 1
+            if j != 0:
+                base_j = j - MAX_COIN
+                meta_j = 1
+
+            if i == 0:
+                x = xp[i] + dx * (rates[0] // 10**18)
+            else:
+                if j == 0:
+                    # i is from BasePool
+                    # At first, get the amount of pool tokens
+                    base_inputs = [0] * BASE_N_COINS
+                    base_inputs[base_i] = dx
+                    # Token amount transformed to underlying "dollars"
+                    x = (
+                        self.base_pool._calc_token_amount(amounts=base_inputs, deposit=True)
+                        * rates[1]
+                        // self.PRECISION
+                    )
+                    # Accounting for deposit/withdraw fees approximately
+                    x -= x * self.base_pool.fee // (2 * self.FEE_DENOMINATOR)
+                    # Adding number of pool tokens
+                    x += xp[MAX_COIN]
+                else:
+                    # If both are from the base pool
+                    return self.base_pool._get_dy(base_i, base_j, dx)
+
+            # This pool is involved only when in-pool assets are used
+            y = self._get_y(meta_i, meta_j, x, xp)
+            dy = xp[meta_j] - y - 1
+            dy = dy - self.fee * dy // self.FEE_DENOMINATOR
+
+            # If output is going via the metapool
+            if j == 0:
+                dy //= rates[0] // 10**18
+            else:
+                # j is from BasePool
+                # The fee is already accounted for
+                dy, *_ = self.base_pool._calc_withdraw_one_coin(
+                    dy * self.PRECISION // rates[1], base_j
+                )
+
+            return dy
+
+        elif self.address == "0x4606326b4Db89373F5377C316d3b0F6e55Bc6A20":
+            BASE_N_COINS = len(self.base_pool.tokens)
+            MAX_COIN = len(self.tokens) - 1
+
+            rates = [self.PRECISION, self._get_virtual_price()]
+            xp = self._xp_mem(rates=rates, balances=self.balances)
+
+            x = 0
+            base_i = 0
+            base_j = 0
+            meta_i = 0
+            meta_j = 0
+
+            if i != 0:
+                base_i = i - MAX_COIN
+                meta_i = 1
+            if j != 0:
+                base_j = j - MAX_COIN
+                meta_j = 1
+
+            if i == 0:
+                x = xp[i] + dx * (rates[0] // 10**18)
+            else:
+                if j == 0:
+                    # i is from BasePool
+                    # At first, get the amount of pool tokens
+                    base_inputs = [0] * BASE_N_COINS
+                    base_inputs[base_i] = dx
+                    # Token amount transformed to underlying "dollars"
+                    x = (
+                        self.base_pool._calc_token_amount(amounts=base_inputs, deposit=True)
+                        * rates[1]
+                        // self.PRECISION
+                    )
+                    # Accounting for deposit/withdraw fees approximately
+                    x -= x * self.base_pool.fee // (2 * self.FEE_DENOMINATOR)
+                    # Adding number of pool tokens
+                    x += xp[MAX_COIN]
+                else:
+                    # If both are from the base pool
+                    return self.base_pool._get_dy(base_i, base_j, dx)
+
+            # This pool is involved only when in-pool assets are used
+            y = self._get_y(meta_i, meta_j, x, xp)
+            dy = xp[meta_j] - y - 1
+            dy = dy - self.fee * dy // self.FEE_DENOMINATOR
+
+            # If output is going via the metapool
+            if j == 0:
+                dy //= rates[0] // 10**18
+            else:
+                # j is from BasePool
+                # The fee is already accounted for
+                dy, *_ = self.base_pool._calc_withdraw_one_coin(
+                    dy * self.PRECISION // rates[1], base_j
+                )
+
+            return dy
+
+        else:
+            rates = self.rate_multipliers.copy()
+
+            vp_rate = self._get_virtual_price()  # (self.base_pool.address)
+            rates[-1] = vp_rate
+
+            xp: List[int] = self._xp_mem(rates=rates, balances=self.balances)
+            precisions: List[int] = self.precision_multipliers
+
+            BASE_N_COINS = len(self.base_pool.tokens)
+            MAX_COIN = len(self.tokens) - 1
+
+            # Use base_i or base_j if they are >= 0
+            base_i = i - MAX_COIN
+            base_j = j - MAX_COIN
+            meta_i = MAX_COIN
+            meta_j = MAX_COIN
+            if base_i < 0:
+                meta_i = i
+            if base_j < 0:
+                meta_j = j
+
+            if base_i < 0:
+                x = xp[i] + dx * precisions[i]
+            else:
+                if base_j < 0:
+                    # i is from BasePool
+                    # At first, get the amount of pool tokens
+                    base_inputs = [0] * BASE_N_COINS
+                    base_inputs[base_i] = dx
+                    # Token amount transformed to underlying "dollars"
+                    x = (
+                        self.base_pool._calc_token_amount(base_inputs, True)
+                        * vp_rate
+                        // self.PRECISION
+                    )
+                    # Accounting for deposit/withdraw fees approximately
+                    x -= x * self.base_pool.fee // (2 * self.FEE_DENOMINATOR)
+                    # Adding number of pool tokens
+                    x += xp[MAX_COIN]
+                else:
+                    # If both are from the base pool
+                    return self.base_pool._get_dy(base_i, base_j, dx)
+
+            # This pool is involved only when in-pool assets are used
+            y = self._get_y(meta_i, meta_j, x, xp)
+            dy = xp[meta_j] - y - 1
+            dy = dy - self.fee * dy // self.FEE_DENOMINATOR
+
+            # If output is going via the metapool
+            if base_j < 0:
+                dy //= precisions[meta_j]
+            else:
+                # j is from BasePool
+                # The fee is already accounted for
+                dy, *_ = self.base_pool._calc_withdraw_one_coin(
+                    dy * self.PRECISION // vp_rate, base_j
+                )
+
+            return dy
+
     def _get_D(self, _xp: List[int], _amp: int) -> int:
         N_COINS = len(self.tokens)
 
@@ -993,6 +1377,103 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                         return y
 
         raise Exception("_get_y() failed to converge")
+
+    def _get_y_D(self, A_: int, i: int, xp: List[int], D: int) -> int:
+        """
+        Calculate x[i] if one reduces D from being calculated for xp to D
+
+        Done by solving quadratic equation iteratively.
+        x_1**2 + x1 * (sum' - (A*n**n - 1) * D / (A * n**n)) = D ** (n + 1) / (n ** (2 * n) * prod' * A)
+        x_1**2 + b*x_1 = c
+
+        x_1 = (x_1**2 + c) / (2*x_1 + b)
+        """
+
+        if self.address in (
+            "0xDcEF968d416a41Cdac0ED8702fAC8128A64241A2",
+            "0xf253f83AcA21aAbD2A20553AE0BF7F65C755A07F",
+        ):
+            """
+            Calculate x[i] if one reduces D from being calculated for xp to D
+
+            Done by solving quadratic equation iteratively.
+            x_1**2 + x_1 * (sum' - (A*n**n - 1) * D / (A * n**n)) = D ** (n + 1) / (n ** (2 * n) * prod' * A)
+            x_1**2 + b*x_1 = c
+
+            x_1 = (x_1**2 + c) / (2*x_1 + b)
+            """
+
+            N_COINS = len(self.tokens)
+
+            # x in the input is converted to the same price/precision
+
+            assert i >= 0  # dev: i below zero
+            assert i < N_COINS  # dev: i above N_COINS
+
+            Ann = A_ * N_COINS
+            c = D
+            S = 0
+            _x = 0
+            y_prev = 0
+
+            for _i in range(N_COINS):
+                if _i != i:
+                    _x = xp[_i]
+                else:
+                    continue
+                S += _x
+                c = c * D // (_x * N_COINS)
+            b = S + D * self.A_PRECISION // Ann
+            c = c * D * self.A_PRECISION // (Ann * N_COINS)
+            y = D
+
+            for _i in range(255):
+                y_prev = y
+                y = (y * y + c) // (2 * y + b - D)
+                # Equality with the precision of 1
+                if y > y_prev:
+                    if y - y_prev <= 1:
+                        return y
+                else:
+                    if y_prev - y <= 1:
+                        return y
+            raise
+
+        else:
+            # x in the input is converted to the same price/precision
+
+            N_COINS = len(self.tokens)
+
+            assert i >= 0  # dev: i below zero
+            assert i < N_COINS  # dev: i above N_COINS
+
+            c: int = D
+            S_: int = 0
+            Ann: int = A_ * N_COINS
+
+            _x: int = 0
+            for _i in range(N_COINS):
+                if _i != i:
+                    _x = xp[_i]
+                else:
+                    continue
+                S_ += _x
+                c = c * D // (_x * N_COINS)
+            c = c * D // (Ann * N_COINS)
+            b: int = S_ + D // Ann
+            y_prev: int = 0
+            y: int = D
+            for _i in range(255):
+                y_prev = y
+                y = (y * y + c) // (2 * y + b - D)
+                # Equality with the precision of 1
+                if y > y_prev:
+                    if y - y_prev <= 1:
+                        break
+                else:
+                    if y_prev - y <= 1:
+                        break
+            return y
 
     def _newton_y(
         self,
@@ -1277,23 +1758,85 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         Calculates the expected token OUTPUT for a target INPUT at current pool reserves.
         """
 
-        if any(
-            [
-                self.balances[self.tokens.index(token_in)] == 0,
-                self.balances[self.tokens.index(token_out)] == 0,
-            ]
-        ):
-            raise ZeroLiquidityError("One or more of the token has a zero balance.")
+        # TODO cleanup all input validation
 
         if token_in_quantity <= 0:
             raise ZeroSwapError("token_in_quantity must be positive")
 
         if override_state:
+            # TODO: implement overrides in calculation
             logger.debug("Overrides applied:")
             logger.debug(f"Balances: {override_state.balances}")
 
-        return self._get_dy(
-            i=self.tokens.index(token_in),
-            j=self.tokens.index(token_out),
-            dx=token_in_quantity,
-        )
+        tokens_used = [
+            token_in in self.tokens,
+            token_out in self.tokens,
+        ]
+
+        if self.is_metapool:
+            tokens_used_in_base_pool = [
+                token_in in self.base_pool.tokens,
+                token_out in self.base_pool.tokens,
+            ]
+
+        if all(tokens_used):
+            if any([balance == 0 for balance in self.balances]):
+                raise ZeroLiquidityError("One or more of the tokens has a zero balance.")
+            return self._get_dy(
+                i=self.tokens.index(token_in),
+                j=self.tokens.index(token_out),
+                dx=token_in_quantity,
+            )
+        elif any(tokens_used) and self.is_metapool and any(tokens_used_in_base_pool):
+            # TODO: see if any of these checks are unnecessary (partial zero balanece OK?)
+            if any([balance == 0 for balance in self.base_pool.balances]):
+                raise ZeroLiquidityError("One or more of the base pool tokens has a zero balance.")
+            if any([balance == 0 for balance in self.balances]):
+                raise ZeroLiquidityError("One or more of the tokens has a zero balance.")
+            token_in_from_metapool = token_in in self.tokens
+            token_out_from_metapool = token_out in self.tokens
+            token_in_from_basepool = token_in in self.base_pool.tokens
+            token_out_from_basepool = token_out in self.base_pool.tokens
+
+            if token_in_from_metapool and self.balances[self.tokens.index(token_in)] == 0:
+                raise ZeroLiquidityError(f"{token_in} has a zero balance.")
+
+            if token_out_from_metapool and self.balances[self.tokens.index(token_out)] == 0:
+                raise ZeroLiquidityError(f"{token_out} has a zero balance.")
+
+            if (
+                token_in_from_basepool
+                and self.base_pool.balances[self.base_pool.tokens.index(token_in)] == 0
+            ):
+                raise ZeroLiquidityError(f"{token_in} has a zero balance.")
+
+            if (
+                token_out_from_basepool
+                and self.base_pool.balances[self.base_pool.tokens.index(token_out)] == 0
+            ):
+                raise ZeroLiquidityError(f"{token_out} has a zero balance.")
+
+            assert token_in_from_metapool or token_out_from_metapool
+
+            return self._get_dy_underlying(
+                i=self.tokens.index(token_in)
+                if token_in_from_metapool
+                else self.tokens_underlying.index(token_in),
+                j=self.tokens.index(token_out)
+                if token_out_from_metapool
+                else self.tokens_underlying.index(token_out),
+                dx=token_in_quantity,
+            )
+        elif self.is_metapool and all(tokens_used_in_base_pool):
+            token_in_from_basepool = token_in in self.tokens_underlying
+            token_out_from_basepool = token_out in self.tokens_underlying
+
+            assert token_in_from_basepool or token_out_from_basepool
+
+            return self._get_dy_underlying(
+                i=self.tokens_underlying.index(token_in),
+                j=self.tokens_underlying.index(token_out),
+                dx=token_in_quantity,
+            )
+        else:
+            raise ValueError("Tokens not held by pool or in underlying base pool")

@@ -42,7 +42,7 @@ def _test_calculations(lp: CurveStableswapPool):
                     token_out=token_out,
                     token_in_quantity=amount,
                 )
-            except ZeroSwapError as e:
+            except (ZeroSwapError, ZeroLiquidityError) as e:
                 print(f"Skipping zero swap: {e}")
                 continue
 
@@ -71,6 +71,43 @@ def _test_calculations(lp: CurveStableswapPool):
 
             assert calc_amount == contract_amount
 
+    if lp.is_metapool:
+        for token_in, token_out in itertools.permutations(lp.tokens_underlying, 2):
+            # token_in = lp.tokens_underlying[token_in_index]
+            # token_out = lp.tokens_underlying[token_out_index]
+
+            token_in_index = lp.tokens_underlying.index(token_in)
+            token_out_index = lp.tokens_underlying.index(token_out)
+
+            for amount_multiplier in [0.01, 0.05, 0.25]:
+                if token_in in lp.tokens:
+                    amount = int(amount_multiplier * lp.balances[lp.tokens.index(token_in)])
+                else:
+                    amount = int(
+                        amount_multiplier
+                        * lp.base_pool.balances[lp.base_pool.tokens.index(token_in)]
+                    )
+
+                print(f"Simulating swap: {amount} {token_in} for {token_out}")
+
+                try:
+                    calc_amount = lp.calculate_tokens_out_from_tokens_in(
+                        token_in=token_in,
+                        token_out=token_out,
+                        token_in_quantity=amount,
+                    )
+                except (ZeroSwapError, ZeroLiquidityError) as e:
+                    print(f"Skipping zero swap: {e}")
+                    continue
+
+                contract_amount = lp._w3_contract.functions.get_dy_underlying(
+                    token_in_index,
+                    token_out_index,
+                    amount,
+                ).call(block_identifier=state_block)
+
+                assert calc_amount == contract_amount
+
 
 def test_create_pool(fork_from_archive: AnvilFork):
     degenbot.set_web3(fork_from_archive.w3)
@@ -86,10 +123,15 @@ def test_create_pool(fork_from_archive: AnvilFork):
         )
 
 
+def test_metapool(fork_from_archive: AnvilFork):
+    degenbot.set_web3(fork_from_archive.w3)
+    gusd_metapool = CurveStableswapPool("0x4f062658EaAF2C1ccf8C8e36D6824CDf41167956")
+    _test_calculations(gusd_metapool)
+
+
 def test_tripool(fork_from_archive: AnvilFork):
     degenbot.set_web3(fork_from_archive.w3)
     tripool = CurveStableswapPool("0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7")
-
     _test_calculations(tripool)
 
 
@@ -139,10 +181,74 @@ def test_base_registry_pools(fork_from_archive: AnvilFork):
 def test_single_pool(fork_from_archive: AnvilFork):
     degenbot.set_web3(fork_from_archive.w3)
 
-    POOL_ADDRESS = "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE"
+    POOL_ADDRESS = "0xC61557C5d177bd7DC889A3b621eEC333e168f68A"
 
     lp = CurveStableswapPool(address=POOL_ADDRESS, silent=True)
     _test_calculations(lp)
+
+
+def test_base_pool(fork_from_archive: AnvilFork):
+    degenbot.set_web3(fork_from_archive.w3)
+
+    POOL_ADDRESS = "0xf253f83AcA21aAbD2A20553AE0BF7F65C755A07F"
+
+    basepool = CurveStableswapPool(address=POOL_ADDRESS, silent=True)
+
+    # Compare withdrawal calc for all tokens in the pool
+    for token_index, token in enumerate(basepool.tokens):
+        print(f"Testing {token} withdrawal")
+        for amount_multiplier in [0, 0.01, 0.05, 0.25]:
+            token_in_amount = int(amount_multiplier * basepool.balances[token_index])
+            print(f"Withdrawing {token_in_amount} {token}")
+            calc_amount, *_ = basepool._calc_withdraw_one_coin(
+                _token_amount=token_in_amount, i=token_index
+            )
+
+            amount_contract, *_ = eth_abi.decode(
+                types=["uint256"],
+                data=fork_from_archive.w3.eth.call(
+                    transaction={
+                        "to": basepool.address,
+                        "data": Web3.keccak(text="calc_withdraw_one_coin(uint256,int128)")[:4]
+                        + eth_abi.encode(
+                            types=["uint256", "int128"],
+                            args=[token_in_amount, token_index],
+                        ),
+                    }
+                ),
+            )
+            assert calc_amount == amount_contract
+
+    for token_index, token in enumerate(basepool.tokens):
+        print(f"Testing {token} calc token amount")
+
+        amount_array = [0] * len(basepool.tokens)
+
+        for amount_multiplier in [0, 0.01, 0.05, 0.25]:
+            token_in_amount = int(amount_multiplier * basepool.balances[token_index])
+            amount_array[token_index] = token_in_amount
+            print(f"{token_in_amount=}")
+            calc_token_amount = basepool._calc_token_amount(
+                amounts=amount_array,
+                deposit=True,
+            )
+
+            calc_token_amount_contract, *_ = eth_abi.decode(
+                types=["uint256"],
+                data=fork_from_archive.w3.eth.call(
+                    transaction={
+                        "to": basepool.address,
+                        "data": Web3.keccak(
+                            text=f"calc_token_amount(uint256[{len(basepool.tokens)}],bool)"
+                        )[:4]
+                        + eth_abi.encode(
+                            types=[f"uint256[{len(basepool.tokens)}]", "bool"],
+                            args=[amount_array, True],
+                        ),
+                    }
+                ),
+            )
+            assert calc_token_amount == calc_token_amount_contract
 
 
 def test_factory_stableswap_pools(fork_from_archive: AnvilFork):
