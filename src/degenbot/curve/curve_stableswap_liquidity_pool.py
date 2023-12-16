@@ -2,9 +2,10 @@
 
 
 from threading import Lock
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Union, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
 
 import eth_abi
+import eth_abi.exceptions
 import web3.exceptions
 from eth_typing import ChecksumAddress
 from eth_utils.address import to_checksum_address
@@ -58,15 +59,13 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
     def __init__(
         self,
         address: Union[ChecksumAddress, str],
-        tokens: Optional[List[Erc20Token]] = None,
         abi: Optional[list] = None,
         silent: bool = False,
         state_block: Optional[int] = None,
-        empty: bool = False,
     ) -> None:
         """
-        Create a new `CurveStableswapPool` object for interaction with a Curve
-        Stablecoin pool.
+        Create a `CurveStableswapPool` object for interaction with a Curve V1
+        (StableSwap) pool.
 
 
         Arguments
@@ -82,10 +81,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         state_block: int, optional
             Fetch initial state values from the chain at a particular block
             height. Defaults to the latest block if omitted.
-        empty: bool
-            Set to `True` to initialize the pool without initial values
-            retrieved from chain, and skipping some validation. Useful for
-            simulating transactions through pools that do not exist.
         """
 
         if address.lower() in [pool.lower() for pool in BROKEN_POOLS]:
@@ -140,45 +135,73 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             logger.debug(f"{self.future_a_coefficient=}")
             logger.debug(f"{self.future_a_coefficient_time=}")
 
-        chain_id = 1 if empty else _w3.eth.chain_id
+        chain_id = _w3.eth.chain_id
+
+        # Identify the coins input format (int128 or uint256)
+        # Some contracts accept token_id as an int128, some accept uint256
+        for _type in ["int128", "uint256", None]:
+            if _type is None:
+                raise Exception(f"Could not identify index type for pool {self.address}")
+            try:
+                eth_abi.decode(
+                    types=["address"],
+                    data=_w3.eth.call(
+                        transaction={
+                            "to": self.address,
+                            "data": Web3.keccak(text=f"coins({_type})")[:4]
+                            + eth_abi.encode(types=[_type], args=[0]),
+                        },
+                        block_identifier=self.update_block,
+                    ),
+                )
+            except (eth_abi.exceptions.InsufficientDataBytes, web3.exceptions.ContractLogicError):
+                continue
+            else:
+                _COIN_INDEX_TYPE = _type
+                break
 
         token_addresses = []
         for token_id in range(8):
             try:
-                token_addresses.append(
-                    _w3_contract.functions.coins(token_id).call(block_identifier=self.update_block)
+                token_address, *_ = eth_abi.decode(
+                    types=["address"],
+                    data=_w3.eth.call(
+                        transaction={
+                            "to": self.address,
+                            "data": Web3.keccak(text=f"coins({_COIN_INDEX_TYPE})")[:4]
+                            + eth_abi.encode(types=[_COIN_INDEX_TYPE], args=[token_id]),
+                        },
+                        block_identifier=self.update_block,
+                    ),
                 )
             except web3.exceptions.ContractLogicError:
                 break
+            else:
+                token_addresses.append(token_address)
 
         _token_manager = Erc20TokenHelperManager(chain_id)
-        if tokens is not None:
-            # Index the tokens by address
-            sorted_tokens = {token.address: token for token in tokens}
+        self.tokens = [
+            _token_manager.get_erc20token(
+                address=token_address,
+                silent=silent,
+            )
+            for token_address in token_addresses
+        ]
 
-            # Sort and store the tokens
-            for token_address in token_addresses:
-                if token_address not in sorted_tokens:
-                    raise ValueError(f"Token {token_address} not found in tokens.")
-            self.tokens = tuple([sorted_tokens[token_address] for token_address in token_addresses])
-
-        else:
-            self.tokens = [
-                _token_manager.get_erc20token(
-                    address=token_address,
-                    silent=silent,
-                )
-                for token_address in token_addresses
-            ]
-
-        self.balances: List[int] = []
-        self.underlying_balances: Optional[List[int]] = None
-
-        if not empty:
-            self.balances = [
-                _w3_contract.functions.balances(token_id).call(block_identifier=self.update_block)
-                for token_id, _ in enumerate(self.tokens)
-            ]
+        self.balances = []
+        for token_id, _ in enumerate(self.tokens):
+            token_balance, *_ = eth_abi.decode(
+                types=[_COIN_INDEX_TYPE],
+                data=_w3.eth.call(
+                    transaction={
+                        "to": self.address,
+                        "data": Web3.keccak(text=f"balances({_COIN_INDEX_TYPE})")[:4]
+                        + eth_abi.encode(types=[_COIN_INDEX_TYPE], args=[token_id]),
+                    },
+                    block_identifier=self.update_block,
+                ),
+            )
+            self.balances.append(token_balance)
 
         lp_token_address, *_ = eth_abi.decode(
             types=["address"],
@@ -426,7 +449,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         @param dx Amount of `i` being exchanged
         @return Amount of `j` predicted
         """
-
         # ref: https://github.com/curveresearch/notes/blob/main/stableswap.pdf
 
         def _dynamic_fee(xpi: int, xpj: int, _fee: int, _feemul: int) -> int:
@@ -448,10 +470,13 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x3Fb78e61784C9c637D560eDE23Ad57CA1294c14a",
         ):
             live_balances = [
-                token.get_balance(self.address, block=self.update_block) for token in self.tokens
+                token.get_balance(self.address, block_identifier=self.update_block)
+                for token in self.tokens
             ]
             admin_balances = [
-                self._w3_contract.functions.admin_balances(token_index).call()
+                self._w3_contract.functions.admin_balances(token_index).call(
+                    block_identifier=self.update_block
+                )
                 for token_index, _ in enumerate(self.tokens)
             ]
             balances = [
@@ -459,7 +484,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 for pool_balance, admin_balance in zip(live_balances, admin_balances)
             ]
             rates = self.rate_multipliers
-            xp = self._xp_mem(rates=rates, balances=balances)
+            xp = self._xp(rates=rates, balances=balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
@@ -474,7 +499,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 #     block_identifier=self.update_block
                 # ),
             ]
-            xp = self._xp_mem(rates=rates, balances=self.balances)
+            xp = self._xp(rates=rates, balances=self.balances)
             # TODO: remove assert after verification
             assert xp == [
                 rate * balance // self.PRECISION for rate, balance in zip(rates, self.balances)
@@ -498,7 +523,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             #     block_identifier=self.update_block
             # )
 
-            xp = self._xp_mem(rates=rates, balances=self.balances)
+            xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
@@ -597,7 +622,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x4CA9b3063Ec5866A4B82E437059D2C43d1be596F",
         ):
             rates = self.rate_multipliers
-            xp = self._xp_mem(rates=rates, balances=self.balances)
+            xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = (xp[j] - y - 1) * self.PRECISION // rates[j]
@@ -638,7 +663,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0xFD5dB7463a3aB53fD211b4af195c5BCCC1A03890",
         ):
             rates = self.rate_multipliers
-            xp = self._xp_mem(rates=rates, balances=self.balances)
+            xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
@@ -673,16 +698,20 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
             balances = [
                 self.tokens[ETH_COIN_INDEX].get_balance(
-                    address=self.address, block=self.update_block
+                    address=self.address, block_identifier=self.update_block
                 )
-                - self._w3_contract.functions.admin_balances(ETH_COIN_INDEX).call(),
+                - self._w3_contract.functions.admin_balances(ETH_COIN_INDEX).call(
+                    block_identifier=self.update_block
+                ),
                 self.tokens[DERIVATIVE_ETH_COIN_INDEX].get_balance(
-                    address=self.address, block=self.update_block
+                    address=self.address, block_identifier=self.update_block
                 )
-                - self._w3_contract.functions.admin_balances(DERIVATIVE_ETH_COIN_INDEX).call(),
+                - self._w3_contract.functions.admin_balances(DERIVATIVE_ETH_COIN_INDEX).call(
+                    block_identifier=self.update_block
+                ),
             ]
             rates = self._stored_rates_from_oracle()
-            xp = self._xp_mem(rates=rates, balances=balances)
+            xp = self._xp(rates=rates, balances=balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
@@ -695,7 +724,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x52EA46506B9CC5Ef470C5bf89f17Dc28bB35D85C",
         ):
             rates = self._stored_rates_from_ctokens()
-            xp = self._xp_mem(rates=rates, balances=self.balances)
+            xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = (xp[j] - y) * self.PRECISION // rates[j]
@@ -705,7 +734,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         elif self.address in ("0x2dded6Da1BF5DBdF597C45fcFaa3194e53EcfeAF",):
             assert self.precision_multipliers == [1, 10**12, 10**12]
             rates = self._stored_rates_from_cytokens()
-            xp = self._xp_mem(rates=rates, balances=self.balances)
+            xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
@@ -713,7 +742,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         elif self.address in ("0x06364f10B501e868329afBc005b3492902d6C763",):
             rates = self._stored_rates_from_ytokens()
-            xp = self._xp_mem(rates=rates, balances=self.balances)
+            xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = (xp[j] - y - 1) * self.PRECISION // rates[j]
@@ -725,7 +754,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x45F783CCE6B7FF23B2ab2D70e416cdb7D6055f51",
         ):
             rates = self._stored_rates_from_ytokens()
-            xp = self._xp_mem(rates=rates, balances=self.balances)
+            xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = (xp[j] - y) * self.PRECISION // rates[j]
@@ -734,7 +763,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         elif self.address in ("0xA96A65c051bF88B4095Ee1f2451C2A9d43F53Ae2",):
             rates = self._stored_rates_from_aeth()
-            xp = self._xp_mem(rates=rates, balances=self.balances)
+            xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y
@@ -743,7 +772,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         elif self.address in ("0xF9440930043eb3997fc70e1339dBb11F341de7A8",):
             rates = self._stored_rates_from_reth()
-            xp = self._xp_mem(rates=rates, balances=self.balances)
+            xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y
@@ -751,9 +780,14 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             return (dy - fee) * self.PRECISION // rates[j]
 
         elif self.address in ("0xEB16Ae0052ed37f479f7fe63849198Df1765a733",):
-            live_balances = [token.get_balance(self.address) for token in self.tokens]
+            live_balances = [
+                token.get_balance(self.address, block_identifier=self.update_block)
+                for token in self.tokens
+            ]
             admin_balances = [
-                self._w3_contract.functions.admin_balances(token_index).call()
+                self._w3_contract.functions.admin_balances(token_index).call(
+                    block_identifier=self.update_block
+                )
                 for token_index, _ in enumerate(self.tokens)
             ]
             balances = [
@@ -778,9 +812,14 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             return dy - _fee
 
         elif self.address in ("0xDeBF20617708857ebe4F679508E7b7863a8A8EeE",):
-            live_balances = [token.get_balance(self.address) for token in self.tokens]
+            live_balances = [
+                token.get_balance(self.address, block_identifier=self.update_block)
+                for token in self.tokens
+            ]
             admin_balances = [
-                self._w3_contract.functions.admin_balances(token_index).call()
+                self._w3_contract.functions.admin_balances(token_index).call(
+                    block_identifier=self.update_block
+                )
                 for token_index, _ in enumerate(self.tokens)
             ]
             balances = [
@@ -809,7 +848,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             return dy - _fee
         else:
             rates = self.rate_multipliers
-            xp = self._xp_mem(rates=rates, balances=self.balances)
+            xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
@@ -835,7 +874,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         N_COINS = len(self.tokens)
 
         _balances = self.balances.copy()
-        xp = self._xp_mem(rates=self.rate_multipliers, balances=_balances)
+        xp = self._xp(rates=self.rate_multipliers, balances=_balances)
         amp = self._A()
         D0 = self._get_D(_xp=xp, _amp=amp)
 
@@ -845,7 +884,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             else:
                 _balances[i] -= amounts[i]
 
-        xp = self._xp_mem(rates=self.rate_multipliers, balances=_balances)
+        xp = self._xp(rates=self.rate_multipliers, balances=_balances)
         D1: int = self._get_D(xp, amp)
         token_amount: int = self.lp_token.get_total_supply(block=self.update_block)
 
@@ -867,7 +906,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             # * Get current D
             # * Solve Eqn against y_i for D - _token_amount
             amp = self._A()
-            xp = self._xp_mem(rates=self.rate_multipliers, balances=self.balances)
+            xp = self._xp(rates=self.rate_multipliers, balances=self.balances)
             D0 = self._get_D(xp, amp)
 
             total_supply = self.lp_token.get_total_supply()
@@ -890,7 +929,10 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
             return dy, dy_0 - dy, total_supply
 
-        elif self.address == "0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7":
+        elif self.address in (
+            "0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            "0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714",
+        ):
             # ref: https://etherscan.io/address/0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7#code
             N_COINS = len(self.tokens)
 
@@ -903,7 +945,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
             total_supply = self.lp_token.get_total_supply(block=self.update_block)
 
-            xp = self._xp_mem(rates=self.rate_multipliers, balances=self.balances)
+            xp = self._xp(rates=self.rate_multipliers, balances=self.balances)
 
             D0 = self._get_D(xp, amp)
             D1 = D0 - _token_amount * D0 // total_supply
@@ -939,7 +981,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 self._get_scaled_redemption_price(),
                 vp_rate,
             ]
-            xp: List[int] = self._xp_mem(rates=rates, balances=self.balances)
+            xp: List[int] = self._xp(rates=rates, balances=self.balances)
 
             # Use base_i or base_j if they are >= 0
             base_i = i - MAX_COIN
@@ -999,7 +1041,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 self.PRECISION,  # <----- self.rate_multiplier?
                 self._get_virtual_price(),
             ]
-            xp = self._xp_mem(rates=rates, balances=self.balances)
+            xp = self._xp(rates=rates, balances=self.balances)
 
             x = 0
             base_i = 0
@@ -1058,7 +1100,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             MAX_COIN = len(self.tokens) - 1
 
             rates = [self.PRECISION, self._get_virtual_price()]
-            xp = self._xp_mem(rates=rates, balances=self.balances)
+            xp = self._xp(rates=rates, balances=self.balances)
 
             x = 0
             base_i = 0
@@ -1118,8 +1160,8 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             vp_rate = self._get_virtual_price()  # (self.base_pool.address)
             rates[-1] = vp_rate
 
-            xp: List[int] = self._xp_mem(rates=rates, balances=self.balances)
-            precisions: List[int] = self.precision_multipliers
+            xp = self._xp(rates=rates, balances=self.balances)
+            precisions = self.precision_multipliers
 
             BASE_N_COINS = len(self.base_pool.tokens)
             MAX_COIN = len(self.tokens) - 1
@@ -1184,8 +1226,13 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         Ann = _amp * N_COINS
 
         if self.address in (
-            "0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            "0x06364f10B501e868329afBc005b3492902d6C763",
             "0x4CA9b3063Ec5866A4B82E437059D2C43d1be596F",
+            "0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714",
+            "0x93054188d876f558f4a66B2EF1d97d16eDf0895B",
+            "0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            "0x52EA46506B9CC5Ef470C5bf89f17Dc28bB35D85C",
+            "0x45F783CCE6B7FF23B2ab2D70e416cdb7D6055f51",
         ):
             for _ in range(255):
                 D_P = D
@@ -1201,12 +1248,30 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                         return D
 
         elif self.address in (
-            "0x3Fb78e61784C9c637D560eDE23Ad57CA1294c14a",
-            "0x1C5F80b6B68A9E1Ef25926EeE00b5255791b996B",
-            "0x320B564Fb9CF36933eC507a846ce230008631fd3",
+            "0xA2B47E3D5c44877cca798226B7B8118F9BFb7A56",
+            "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27",
+            "0xA5407eAE9Ba41422680e2e00537571bcC53efBfD",
         ):
             for _ in range(255):
-                D_P = D * D // _xp[0] * D // _xp[1] // (N_COINS) ** 2
+                D_P = D
+                for _x in _xp:
+                    D_P = D_P * D // (_x * N_COINS + 1)
+                Dprev = D
+                D = (Ann * S + D_P * N_COINS) * D // ((Ann - 1) * D + (N_COINS + 1) * D_P)
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+
+        elif self.address in (
+            "0x1C5F80b6B68A9E1Ef25926EeE00b5255791b996B",
+            "0x320B564Fb9CF36933eC507a846ce230008631fd3",
+            "0x3Fb78e61784C9c637D560eDE23Ad57CA1294c14a",
+        ):
+            for _ in range(255):
+                D_P = D * D // _xp[0] * D // _xp[1] // N_COINS**2
                 Dprev = D
                 D = (
                     (Ann * S // self.A_PRECISION + D_P * N_COINS)
@@ -1270,18 +1335,28 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         assert i < N_COINS
 
         if self.address in (
+            "0x06364f10B501e868329afBc005b3492902d6C763",
+            "0x45F783CCE6B7FF23B2ab2D70e416cdb7D6055f51",
+            "0x4CA9b3063Ec5866A4B82E437059D2C43d1be596F",
+            "0x52EA46506B9CC5Ef470C5bf89f17Dc28bB35D85C",
             "0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714",
             "0x93054188d876f558f4a66B2EF1d97d16eDf0895B",
-            "0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
-            "0x4CA9b3063Ec5866A4B82E437059D2C43d1be596F",
             "0xA2B47E3D5c44877cca798226B7B8118F9BFb7A56",
             "0xA5407eAE9Ba41422680e2e00537571bcC53efBfD",
-            "0x52EA46506B9CC5Ef470C5bf89f17Dc28bB35D85C",
-            "0x06364f10B501e868329afBc005b3492902d6C763",
+            "0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
             "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27",
-            "0x45F783CCE6B7FF23B2ab2D70e416cdb7D6055f51",
         ):
-            amp = self._A()
+            if self.address in (
+                "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27",
+                "0xA2B47E3D5c44877cca798226B7B8118F9BFb7A56",
+                "0xA5407eAE9Ba41422680e2e00537571bcC53efBfD",
+                "0x52EA46506B9CC5Ef470C5bf89f17Dc28bB35D85C",
+                "0x45F783CCE6B7FF23B2ab2D70e416cdb7D6055f51",
+            ):
+                amp = self._A() // self.A_PRECISION
+            else:
+                amp = self._A()
+
             D = self._get_D(xp, amp)
             c = D
             S_ = 0
@@ -1298,39 +1373,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 c = c * D // (_x * N_COINS)
 
             c = c * D // (Ann * N_COINS)
-            b = S_ + D // Ann  # - D
-            y = D
-            for _ in range(255):
-                y_prev = y
-                y = (y * y + c) // (2 * y + b - D)
-                if y > y_prev:
-                    if y - y_prev <= 1:
-                        return y
-                else:
-                    if y_prev - y <= 1:
-                        return y
-
-        elif self.address in (
-            "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27",
-            "0xA2B47E3D5c44877cca798226B7B8118F9BFb7A56",
-        ):
-            amp = self._A()
-            D = self._get_D(xp, amp)
-            c = D
-            S_ = 0
-            Ann = amp * N_COINS
-
-            for _i in range(N_COINS):
-                if _i == i:
-                    _x = x
-                elif _i != j:
-                    _x = xp[_i]
-                else:
-                    continue
-                S_ += _x
-                c = c * D // (_x * N_COINS)
-            c = c * D // (Ann * N_COINS)
-            b = S_ + D // Ann  # - D
+            b = S_ + D // Ann
             y = D
             for _ in range(255):
                 y_prev = y
@@ -1446,11 +1489,11 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             assert i >= 0  # dev: i below zero
             assert i < N_COINS  # dev: i above N_COINS
 
-            c: int = D
-            S_: int = 0
-            Ann: int = A_ * N_COINS
+            c = D
+            S_ = 0
+            Ann = A_ * N_COINS
 
-            _x: int = 0
+            _x = 0
             for _i in range(N_COINS):
                 if _i != i:
                     _x = xp[_i]
@@ -1459,9 +1502,8 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 S_ += _x
                 c = c * D // (_x * N_COINS)
             c = c * D // (Ann * N_COINS)
-            b: int = S_ + D // Ann
-            y_prev: int = 0
-            y: int = D
+            b = S_ + D // Ann
+            y = D
             for _i in range(255):
                 y_prev = y
                 y = (y * y + c) // (2 * y + b - D)
@@ -1586,7 +1628,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     data=config.get_web3().eth.call(
                         transaction={
                             "to": token.address,
-                            "data": Web3.keccak(text="exchangeRateStored()"),
+                            "data": Web3.keccak(text="exchangeRateStored()")[:4],
                         },
                         block_identifier=self.update_block,
                     ),
@@ -1596,7 +1638,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     data=config.get_web3().eth.call(
                         transaction={
                             "to": token.address,
-                            "data": Web3.keccak(text="supplyRatePerBlock()"),
+                            "data": Web3.keccak(text="supplyRatePerBlock()")[:4],
                         },
                         block_identifier=self.update_block,
                     ),
@@ -1606,7 +1648,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     data=config.get_web3().eth.call(
                         transaction={
                             "to": token.address,
-                            "data": Web3.keccak(text="accrualBlockNumber()"),
+                            "data": Web3.keccak(text="accrualBlockNumber()")[:4],
                         },
                         block_identifier=self.update_block,
                     ),
@@ -1622,22 +1664,25 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         # ref: https://etherscan.io/address/0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27#code
 
         result = []
-        for token, multiplier, is_lending in zip(
-            self.tokens, self.precision_multipliers, self.USE_LENDING
+        for token, multiplier, use_lending in zip(
+            self.tokens,
+            self.precision_multipliers,
+            self.USE_LENDING,
         ):
-            if is_lending:
+            if use_lending:
                 rate, *_ = eth_abi.decode(
                     types=["uint256"],
                     data=config.get_web3().eth.call(
                         transaction={
                             "to": token.address,
-                            "data": Web3.keccak(text="getPricePerFullShare()"),
+                            "data": Web3.keccak(text="getPricePerFullShare()")[:4],
                         },
                         block_identifier=self.update_block,
                     ),
                 )
             else:
                 rate = self.LENDING_PRECISION
+
             result.append(rate * multiplier)
 
         return result
@@ -1653,7 +1698,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     config.get_web3().eth.call(
                         transaction={
                             "to": token.address,
-                            "data": Web3.keccak(text="exchangeRateStored()"),
+                            "data": Web3.keccak(text="exchangeRateStored()")[:4],
                         },
                         block_identifier=self.update_block,
                     )
@@ -1664,7 +1709,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 data=config.get_web3().eth.call(
                     transaction={
                         "to": token.address,
-                        "data": Web3.keccak(text="supplyRatePerBlock()"),
+                        "data": Web3.keccak(text="supplyRatePerBlock()")[:4],
                     },
                     block_identifier=self.update_block,
                 ),
@@ -1674,7 +1719,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 data=config.get_web3().eth.call(
                     transaction={
                         "to": token.address,
-                        "data": Web3.keccak(text="accrualBlockNumber()"),
+                        "data": Web3.keccak(text="accrualBlockNumber()")[:4],
                     },
                     block_identifier=self.update_block,
                 ),
@@ -1693,7 +1738,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             data=config.get_web3().eth.call(
                 transaction={
                     "to": self.tokens[1].address,
-                    "data": Web3.keccak(text="getExchangeRate()"),
+                    "data": Web3.keccak(text="getExchangeRate()")[:4],
                 },
                 block_identifier=self.update_block,
             ),
@@ -1707,7 +1752,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             data=config.get_web3().eth.call(
                 transaction={
                     "to": self.tokens[1].address,
-                    "data": Web3.keccak(text="ratio()"),
+                    "data": Web3.keccak(text="ratio()")[:4],
                 },
                 block_identifier=self.update_block,
             ),
@@ -1739,7 +1784,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         return rates
 
-    def _xp_mem(
+    def _xp(
         self,
         rates: List[int],
         balances: List[int],

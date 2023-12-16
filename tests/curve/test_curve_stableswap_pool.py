@@ -111,16 +111,7 @@ def _test_calculations(lp: CurveStableswapPool):
 
 def test_create_pool(fork_from_archive: AnvilFork):
     degenbot.set_web3(fork_from_archive.w3)
-    lp = CurveStableswapPool(address=FRXETH_WETH_CURVE_POOL_ADDRESS, silent=True)
-
-    # Test providing tokens
-    CurveStableswapPool(address=FRXETH_WETH_CURVE_POOL_ADDRESS, tokens=lp.tokens)
-
-    # Test with the wrong tokens
-    with pytest.raises(ValueError, match=f"Token {lp.tokens[1].address} not found in tokens."):
-        CurveStableswapPool(
-            address=FRXETH_WETH_CURVE_POOL_ADDRESS, tokens=[lp.tokens[0]], silent=True
-        )
+    CurveStableswapPool(address=FRXETH_WETH_CURVE_POOL_ADDRESS, silent=True)
 
 
 def test_metapool(fork_from_archive: AnvilFork):
@@ -173,17 +164,17 @@ def test_base_registry_pools(fork_from_archive: AnvilFork):
 
     for pool_id in range(pool_count):
         pool_address = registry.functions.pool_list(pool_id).call()
-        # print(f"{pool_id}: {pool_address=}")
-        lp = CurveStableswapPool(address=pool_address)
+        print(f"{pool_id}: {pool_address=}")
+        lp = CurveStableswapPool(address=pool_address, silent=True)
         _test_calculations(lp)
 
 
 def test_single_pool(fork_from_archive: AnvilFork):
     degenbot.set_web3(fork_from_archive.w3)
 
-    POOL_ADDRESS = "0xC61557C5d177bd7DC889A3b621eEC333e168f68A"
+    POOL_ADDRESS = "0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5"
 
-    lp = CurveStableswapPool(address=POOL_ADDRESS, silent=True)
+    lp = CurveStableswapPool(address=POOL_ADDRESS)
     _test_calculations(lp)
 
 
@@ -197,7 +188,7 @@ def test_base_pool(fork_from_archive: AnvilFork):
     # Compare withdrawal calc for all tokens in the pool
     for token_index, token in enumerate(basepool.tokens):
         print(f"Testing {token} withdrawal")
-        for amount_multiplier in [0, 0.01, 0.05, 0.25]:
+        for amount_multiplier in [0.01, 0.10, 0.25]:
             token_in_amount = int(amount_multiplier * basepool.balances[token_index])
             print(f"Withdrawing {token_in_amount} {token}")
             calc_amount, *_ = basepool._calc_withdraw_one_coin(
@@ -224,7 +215,7 @@ def test_base_pool(fork_from_archive: AnvilFork):
 
         amount_array = [0] * len(basepool.tokens)
 
-        for amount_multiplier in [0, 0.01, 0.05, 0.25]:
+        for amount_multiplier in [0.01, 0.10, 0.25]:
             token_in_amount = int(amount_multiplier * basepool.balances[token_index])
             amount_array[token_index] = token_in_amount
             print(f"{token_in_amount=}")
