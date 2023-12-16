@@ -151,6 +151,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             except web3.exceptions.ContractLogicError:
                 break
 
+        _token_manager = Erc20TokenHelperManager(chain_id)
         if tokens is not None:
             # Index the tokens by address
             sorted_tokens = {token.address: token for token in tokens}
@@ -162,8 +163,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             self.tokens = tuple([sorted_tokens[token_address] for token_address in token_addresses])
 
         else:
-            _token_manager = Erc20TokenHelperManager(chain_id)
-
             self.tokens = [
                 _token_manager.get_erc20token(
                     address=token_address,
