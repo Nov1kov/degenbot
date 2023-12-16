@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 from warnings import warn
 
 import ujson
@@ -7,7 +7,7 @@ from eth_utils.address import to_checksum_address
 from web3 import Web3
 from web3.contract import Contract
 from web3.exceptions import BadFunctionCallOutput, ContractLogicError
-
+from web3.types import BlockIdentifier
 from . import config
 from .baseclasses import TokenHelper
 from .chainlink import ChainlinkPriceContract
@@ -303,9 +303,9 @@ class Erc20Token(TokenHelper):
     #         print(f"Exception in token_approve: {e}")
     #         raise
 
-    def get_balance(self, address: str, block: Optional[int] = None) -> int:
+    def get_balance(self, address: str, block_identifier: Optional[BlockIdentifier] = None) -> int:
         return self._w3_contract.functions.balanceOf(to_checksum_address(address)).call(
-            block_identifier=block
+            block_identifier=block_identifier
         )
 
     def get_total_supply(self, block: Optional[int] = None) -> int:
@@ -329,16 +329,23 @@ class Erc20Token(TokenHelper):
 
 class EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE(Erc20Token):
     """
-    Ayyyyyy lmao thanks Curve
+    An adapter for pools using the 'all Es' placeholder address to represent native Ether.
     """
 
     def __init__(
         self,
     ):
-        self.address = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+        self.address = to_checksum_address("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")
         self.symbol = "ETH"
         self.name = "Ether Placeholder"
         self.decimals = 18
 
-    def get_balance(self, address: str, block: Optional[int] = None) -> int:
-        return config.get_web3().eth.get_balance(address, block_identifier=block)
+    def get_balance(
+        self,
+        address: Union[ChecksumAddress, str],
+        block_identifier: Optional[BlockIdentifier] = None,
+    ) -> int:
+        return config.get_web3().eth.get_balance(
+            to_checksum_address(address),
+            block_identifier=block_identifier,
+        )
