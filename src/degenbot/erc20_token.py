@@ -13,6 +13,7 @@ from .baseclasses import TokenHelper
 from .chainlink import ChainlinkPriceContract
 from .logging import logger
 from .registry import AllTokens
+import eth_abi
 
 # Taken from OpenZeppelin's ERC-20 implementation
 # ref: https://www.npmjs.com/package/@openzeppelin/contracts?activeTab=code
@@ -306,6 +307,16 @@ class Erc20Token(TokenHelper):
         return self._w3_contract.functions.balanceOf(to_checksum_address(address)).call(
             block_identifier=block
         )
+
+    def get_total_supply(self, block: Optional[int] = None) -> int:
+        total_supply, *_ = eth_abi.decode(
+            types=["uint256"],
+            data=config.get_web3().eth.call(
+                transaction={"to": self.address, "data": Web3.keccak(text="totalSupply()")[:4]},
+                block_identifier=block,
+            ),
+        )
+        return total_supply
 
     # def update_balance(self):
     #     self.balance = self.get_balance(self._user)
