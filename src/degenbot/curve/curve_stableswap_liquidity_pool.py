@@ -1157,7 +1157,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         else:
             rates = self.rate_multipliers.copy()
 
-            vp_rate = self._get_virtual_price()  # (self.base_pool.address)
+            vp_rate = self._get_virtual_price()
             rates[-1] = vp_rate
 
             xp = self._xp(rates=rates, balances=self.balances)

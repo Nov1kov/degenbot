@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional, Tuple, Union
 from warnings import warn
 
+import eth_abi
 import ujson
 from eth_typing import ChecksumAddress
 from eth_utils.address import to_checksum_address
@@ -8,12 +9,12 @@ from web3 import Web3
 from web3.contract import Contract
 from web3.exceptions import BadFunctionCallOutput, ContractLogicError
 from web3.types import BlockIdentifier
+
 from . import config
 from .baseclasses import TokenHelper
 from .chainlink import ChainlinkPriceContract
 from .logging import logger
 from .registry import AllTokens
-import eth_abi
 
 # Taken from OpenZeppelin's ERC-20 implementation
 # ref: https://www.npmjs.com/package/@openzeppelin/contracts?activeTab=code
