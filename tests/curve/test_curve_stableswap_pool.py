@@ -4,11 +4,7 @@ import degenbot
 import eth_abi
 import pytest
 from degenbot.curve.abi import CURVE_V1_FACTORY_ABI, CURVE_V1_REGISTRY_ABI
-from degenbot.curve.curve_stableswap_liquidity_pool import (
-    BROKEN_POOLS,
-    BrokenPool,
-    CurveStableswapPool,
-)
+from degenbot.curve.curve_stableswap_liquidity_pool import BrokenPool, CurveStableswapPool
 from degenbot.exceptions import ZeroLiquidityError, ZeroSwapError
 from degenbot.fork import AnvilFork
 from web3 import Web3
@@ -34,8 +30,6 @@ def _test_calculations(lp: CurveStableswapPool):
         for amount_multiplier in [0.01, 0.05, 0.25]:
             amount = int(amount_multiplier * lp.balances[lp.tokens.index(token_in)])
 
-            print(f"Simulating swap: {amount} {token_in} for {token_out}")
-
             try:
                 calc_amount = lp.calculate_tokens_out_from_tokens_in(
                     token_in=token_in,
@@ -43,7 +37,7 @@ def _test_calculations(lp: CurveStableswapPool):
                     token_in_quantity=amount,
                 )
             except (ZeroSwapError, ZeroLiquidityError) as e:
-                print(f"Skipping zero swap: {e}")
+                print(f"Zero swap: {e}")
                 continue
 
             if lp.address == "0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5":
@@ -69,13 +63,12 @@ def _test_calculations(lp: CurveStableswapPool):
                     amount,
                 ).call(block_identifier=state_block)
 
-            assert calc_amount == contract_amount
+            assert (
+                calc_amount == contract_amount
+            ), f"Failure simulating swap @ {lp.address}: {amount} {token_in} for {token_out}"
 
     if lp.is_metapool:
         for token_in, token_out in itertools.permutations(lp.tokens_underlying, 2):
-            # token_in = lp.tokens_underlying[token_in_index]
-            # token_out = lp.tokens_underlying[token_out_index]
-
             token_in_index = lp.tokens_underlying.index(token_in)
             token_out_index = lp.tokens_underlying.index(token_out)
 
@@ -87,8 +80,6 @@ def _test_calculations(lp: CurveStableswapPool):
                         amount_multiplier
                         * lp.base_pool.balances[lp.base_pool.tokens.index(token_in)]
                     )
-
-                print(f"Simulating swap: {amount} {token_in} for {token_out}")
 
                 try:
                     calc_amount = lp.calculate_tokens_out_from_tokens_in(
@@ -106,7 +97,9 @@ def _test_calculations(lp: CurveStableswapPool):
                     amount,
                 ).call(block_identifier=state_block)
 
-                assert calc_amount == contract_amount
+                assert (
+                    calc_amount == contract_amount
+                ), f"Failure simulating swap @ {lp.address}: {amount} {token_in} for {token_out}"
 
 
 def test_create_pool(fork_from_archive: AnvilFork):
@@ -172,7 +165,7 @@ def test_base_registry_pools(fork_from_archive: AnvilFork):
 def test_single_pool(fork_from_archive: AnvilFork):
     degenbot.set_web3(fork_from_archive.w3)
 
-    POOL_ADDRESS = "0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5"
+    POOL_ADDRESS = "0x4f062658EaAF2C1ccf8C8e36D6824CDf41167956"
 
     lp = CurveStableswapPool(address=POOL_ADDRESS)
     _test_calculations(lp)
@@ -255,9 +248,6 @@ def test_factory_stableswap_pools(fork_from_archive: AnvilFork):
 
     for pool_id in range(pool_count):
         pool_address = stableswap_factory.functions.pool_list(pool_id).call()
-
-        if pool_address in BROKEN_POOLS:
-            continue
 
         try:
             lp = CurveStableswapPool(address=pool_address, silent=True)
