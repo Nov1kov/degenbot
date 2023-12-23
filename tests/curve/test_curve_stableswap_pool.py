@@ -5,6 +5,7 @@ import eth_abi
 import pytest
 from degenbot.curve.abi import CURVE_V1_FACTORY_ABI, CURVE_V1_REGISTRY_ABI
 from degenbot.curve.curve_stableswap_liquidity_pool import BrokenPool, CurveStableswapPool
+from degenbot.curve.curve_stableswap_dataclasses import CurveStableswapPoolExternalUpdate
 from degenbot.exceptions import ZeroLiquidityError, ZeroSwapError
 from degenbot.fork import AnvilFork
 from web3 import Web3
@@ -13,11 +14,18 @@ from web3.contract import Contract
 FRXETH_WETH_CURVE_POOL_ADDRESS = "0x9c3B46C0Ceb5B9e304FCd6D88Fc50f7DD24B31Bc"
 CURVE_V1_FACTORY_ADDRESS = "0x127db66E7F0b16470Bec194d0f496F9Fa065d0A9"
 CURVE_V1_REGISTRY_ADDRESS = "0x90E00ACe148ca3b23Ac1bC8C240C2a7Dd9c2d7f5"
+TRIPOOL_ADDRESS = "0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7"
 
 
 @pytest.fixture()
-def fork_from_archive() -> Web3:
+def fork_from_archive() -> AnvilFork:
     return AnvilFork(fork_url="http://localhost:8543")
+
+
+@pytest.fixture()
+def tripool(fork_from_archive: AnvilFork) -> CurveStableswapPool:
+    degenbot.set_web3(fork_from_archive.w3)
+    return CurveStableswapPool(TRIPOOL_ADDRESS)
 
 
 def _test_calculations(lp: CurveStableswapPool):
@@ -113,10 +121,69 @@ def test_metapool(fork_from_archive: AnvilFork):
     _test_calculations(gusd_metapool)
 
 
-def test_tripool(fork_from_archive: AnvilFork):
-    degenbot.set_web3(fork_from_archive.w3)
-    tripool = CurveStableswapPool("0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7")
+def test_tripool(tripool: CurveStableswapPool):
     _test_calculations(tripool)
+
+
+def test_auto_update(fork_from_archive: AnvilFork):
+    # Build the pool at a known historical block
+    _BLOCK_NUMBER = 18849427 - 1
+    fork_from_archive.reset(block_number=_BLOCK_NUMBER)
+    degenbot.set_web3(fork_from_archive.w3)
+
+    _tripool = CurveStableswapPool(TRIPOOL_ADDRESS)
+
+    assert fork_from_archive.w3.eth.block_number == _BLOCK_NUMBER
+    assert _tripool.update_block == _BLOCK_NUMBER
+
+    _EXPECTED_BALANCES = [75010632422398781503259123, 76382820384826, 34653521595900]
+    assert _tripool.balances == _EXPECTED_BALANCES
+
+    fork_from_archive.reset(block_number=_BLOCK_NUMBER + 1)
+    assert fork_from_archive.w3.eth.block_number == _BLOCK_NUMBER + 1
+    _tripool.auto_update()
+    assert _tripool.update_block == _BLOCK_NUMBER + 1
+    assert _tripool.balances == [
+        75010632422398781503259123,
+        76437030384826,
+        34599346168546,
+    ]
+
+
+def test_external_update(fork_from_archive: AnvilFork):
+    # Build the pool at a known historical block
+    _BLOCK_NUMBER = 18849427 - 1
+    fork_from_archive.reset(block_number=_BLOCK_NUMBER)
+    degenbot.set_web3(fork_from_archive.w3)
+
+    _tripool = CurveStableswapPool(TRIPOOL_ADDRESS)
+
+    assert fork_from_archive.w3.eth.block_number == _BLOCK_NUMBER
+    assert _tripool.update_block == _BLOCK_NUMBER
+
+    _EXPECTED_BALANCES = [75010632422398781503259123, 76382820384826, 34653521595900]
+    assert _tripool.balances == _EXPECTED_BALANCES
+
+    _SOLD_ID = 1
+    _TOKENS_SOLD = 54210000000
+    _BOUGHT_ID = 2
+    _TOKENS_BOUGHT = 54172718448
+
+    # ref: https://etherscan.io/tx/0x34cd3858eab8ac17a2ef0fd483da48e077d910075d392ab3d510ca6d5e6b4cce
+    update = CurveStableswapPoolExternalUpdate(
+        block_number=fork_from_archive.w3.eth.block_number + 1,
+        sold_id=_SOLD_ID,
+        bought_id=_BOUGHT_ID,
+        tokens_sold=_TOKENS_SOLD,
+        tokens_bought=_TOKENS_BOUGHT,
+    )
+    _tripool.external_update(update)
+
+    assert _tripool.balances == [
+        75010632422398781503259123,
+        76437030384826,
+        34599346168546,
+    ]
 
 
 def test_A_ramping():
@@ -165,7 +232,7 @@ def test_base_registry_pools(fork_from_archive: AnvilFork):
 def test_single_pool(fork_from_archive: AnvilFork):
     degenbot.set_web3(fork_from_archive.w3)
 
-    POOL_ADDRESS = "0x4f062658EaAF2C1ccf8C8e36D6824CDf41167956"
+    POOL_ADDRESS = "0x3F1B0278A9ee595635B61817630cC19DE792f506"
 
     lp = CurveStableswapPool(address=POOL_ADDRESS)
     _test_calculations(lp)
