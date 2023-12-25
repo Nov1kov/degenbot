@@ -44,8 +44,7 @@ def _test_calculations(lp: CurveStableswapPool):
                     token_out=token_out,
                     token_in_quantity=amount,
                 )
-            except (ZeroSwapError, ZeroLiquidityError) as e:
-                print(f"Zero swap: {e}")
+            except (ZeroSwapError, ZeroLiquidityError):
                 continue
 
             if lp.address == "0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5":
@@ -95,8 +94,7 @@ def _test_calculations(lp: CurveStableswapPool):
                         token_out=token_out,
                         token_in_quantity=amount,
                     )
-                except (ZeroSwapError, ZeroLiquidityError) as e:
-                    print(f"Skipping zero swap: {e}")
+                except (ZeroSwapError, ZeroLiquidityError):
                     continue
 
                 contract_amount = lp._w3_contract.functions.get_dy_underlying(
@@ -115,10 +113,42 @@ def test_create_pool(fork_from_archive: AnvilFork):
     CurveStableswapPool(address=FRXETH_WETH_CURVE_POOL_ADDRESS, silent=True)
 
 
-def test_metapool(fork_from_archive: AnvilFork):
+def test_for_basepool_singleton(fork_from_archive: AnvilFork):
+    """
+    Metapools should use an existing basepool instead of creating a new one.
+    """
+    _metapools = (
+        "0x8038C01A0390a8c547446a0b2c18fc9aEFEcc10c",
+        "0x4f062658EaAF2C1ccf8C8e36D6824CDf41167956",
+        "0x3eF6A01A0f81D6046290f3e2A8c5b843e738E604",
+        "0xE7a24EF0C5e95Ffb0f6684b813A78F2a3AD7D171",
+        "0x8474DdbE98F5aA3179B3B3F5942D724aFcdec9f6",
+        "0xC18cC39da8b11dA8c3541C598eE022258F9744da",
+        "0x3E01dD8a5E1fb3481F0F589056b428Fc308AF0Fb",
+        "0x0f9cb53Ebe405d49A0bbdBD291A65Ff571bC83e1",
+        "0x42d7025938bEc20B69cBae5A77421082407f053A",
+        "0x890f4e345B1dAED0367A877a1612f86A1f86985f",
+        "0x071c661B4DeefB59E2a3DdB20Db036821eeE8F4b",
+        "0xd81dA8D904b52208541Bade1bD6595D8a251F8dd",
+        "0x7F55DDe206dbAD629C080068923b36fe9D6bDBeF",
+        "0xC25099792E9349C7DD09759744ea681C7de2cb66",
+        "0xEcd5e75AFb02eFa118AF914515D6521aaBd189F1",
+        "0xEd279fDD11cA84bEef15AF5D39BB4d4bEE23F0cA",
+        "0xd632f22692FaC7611d2AA1C0D552930D43CAEd3B",
+        "0x4807862AA8b2bF68830e4C8dc86D0e9A998e085a",
+        "0x43b4FdFD4Ff969587185cDB6f0BD875c5Fc83f8c",
+        "0x618788357D0EBd8A37e763ADab3bc575D54c2C7d",
+        "0x5a6A4D54456819380173272A5E8E9B9904BdF41B",
+    )
+
     degenbot.set_web3(fork_from_archive.w3)
-    gusd_metapool = CurveStableswapPool("0x4f062658EaAF2C1ccf8C8e36D6824CDf41167956")
-    _test_calculations(gusd_metapool)
+    seen_basepools = list()
+    for metapool in _metapools:
+        lp = CurveStableswapPool(metapool)
+        seen_basepools.append(lp.base_pool)
+
+    # The number of unique helper objects should match the number of addresses
+    assert len(set(seen_basepools)) == len(set([basepool.address for basepool in seen_basepools]))
 
 
 def test_tripool(tripool: CurveStableswapPool):
@@ -196,18 +226,52 @@ def test_A_ramping():
     INITIAL_A_TIME = 1653559305
     FINAL_A_TIME = 1654158027
 
+    AVERAGE_BLOCK_TIME = 12
+
     fork = AnvilFork(
         fork_url="http://localhost:8543",
         fork_block=14_900_000,
     )
     degenbot.set_web3(fork.w3)
 
-    tripool = CurveStableswapPool(address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7", silent=True)
-    print(fork.w3.eth.get_block("latest")["timestamp"])
+    tripool = CurveStableswapPool(address=TRIPOOL_ADDRESS)
+
+    current_block_number = fork.w3.eth.block_number
+    current_block_timestamp = fork.w3.eth.get_block(current_block_number)["timestamp"]
+
+    print(f"{current_block_number=}")
+    print(f"{current_block_timestamp=}")
+    print(f"{tripool._A()=}")
 
     assert tripool._A(timestamp=INITIAL_A_TIME) == INITIAL_A
     assert tripool._A(timestamp=FINAL_A_TIME) == FINAL_A
     assert tripool._A(timestamp=(INITIAL_A_TIME + FINAL_A_TIME) // 2) == (INITIAL_A + FINAL_A) // 2
+
+    current_a = tripool._A(timestamp=current_block_timestamp)
+    print(f"{current_a=}")
+
+    fork.reset(block_number=18_000_000)
+    tripool = CurveStableswapPool(address=TRIPOOL_ADDRESS)
+    assert tripool._A() == FINAL_A
+
+    # # tiny 'fuzz' test
+    # import random
+
+    # for _ in range(10):
+    #     rand = random.randint(0, 100)
+    #     timestamp = current_block_timestamp + (FINAL_A_TIME - current_block_timestamp) * rand // 100
+    #     future_timestamp_block = (
+    #         current_block_number - (timestamp - current_block_timestamp) // AVERAGE_BLOCK_TIME
+    #     )
+    #     predicted_future_a = current_a + (FINAL_A - current_a) * rand // 100
+    #     # get random block between fork timestamp and FINAL_A timestamp
+    #     calced_future_a = tripool._A(block_identifier=future_timestamp_block)
+    #     print(f"{rand=}")
+    #     print(f"{timestamp=}")
+    #     print(f"{future_timestamp_block=}")
+    #     print(f"{predicted_future_a=}")
+    #     print(f"{calced_future_a=}")
+    #     assert calced_future_a == predicted_future_a
 
 
 def test_base_registry_pools(fork_from_archive: AnvilFork):
@@ -224,7 +288,7 @@ def test_base_registry_pools(fork_from_archive: AnvilFork):
 
     for pool_id in range(pool_count):
         pool_address = registry.functions.pool_list(pool_id).call()
-        print(f"{pool_id}: {pool_address=}")
+        # print(f"{pool_id}: {pool_address=}")
         lp = CurveStableswapPool(address=pool_address, silent=True)
         _test_calculations(lp)
 
@@ -232,7 +296,7 @@ def test_base_registry_pools(fork_from_archive: AnvilFork):
 def test_single_pool(fork_from_archive: AnvilFork):
     degenbot.set_web3(fork_from_archive.w3)
 
-    POOL_ADDRESS = "0x3F1B0278A9ee595635B61817630cC19DE792f506"
+    POOL_ADDRESS = "0x42d7025938bEc20B69cBae5A77421082407f053A"
 
     lp = CurveStableswapPool(address=POOL_ADDRESS)
     _test_calculations(lp)

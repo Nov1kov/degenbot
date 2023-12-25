@@ -2,7 +2,8 @@
 # ----------------------------------------------------
 # PRIORITY      TASK
 # high          write state_update method
-# high          add liquidity modifying mode for external_update
+# high          create a manager for Curve pools
+# medium        add liquidity modifying mode for external_update
 # medium        investigate differences in get_dy_underlying vs exchange_underlying at GUSD-3Crv
 # low           replace eth_calls wherever possible
 
@@ -20,6 +21,8 @@ from web3.contract import Contract
 
 from .. import config
 from ..baseclasses import PoolHelper
+from ..constants import ZERO_ADDRESS
+from ..dex.curve import POOL_ATTRIBUTES
 from ..erc20_token import Erc20Token
 from ..exceptions import (
     LiquidityPoolError,
@@ -32,11 +35,12 @@ from ..registry import AllPools
 from ..subscription_mixins import Subscriber, SubscriptionMixin
 from .abi import CURVE_V1_FACTORY_ABI, CURVE_V1_POOL_ABI, CURVE_V1_REGISTRY_ABI
 from .curve_stableswap_dataclasses import (
-    CurveStableswapPoolState,
+    CurveStableSwapPoolAttributes,
     CurveStableswapPoolExternalUpdate,
+    CurveStableswapPoolState,
 )
 
-CURVE_REGISTRY_ADDRESS = to_checksum_address("0x90E00ACe148ca3b23Ac1bC8C240C2a7Dd9c2d7f5")
+CURVE_V1_REGISTRY_ADDRESS = to_checksum_address("0x90E00ACe148ca3b23Ac1bC8C240C2a7Dd9c2d7f5")
 CURVE_V1_FACTORY_ADDRESS = to_checksum_address("0x127db66E7F0b16470Bec194d0f496F9Fa065d0A9")
 
 BROKEN_POOLS = (
@@ -96,25 +100,37 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         self._state_lock = Lock()
 
-        self.address: ChecksumAddress = to_checksum_address(address)
         self.abi = abi if abi is not None else CURVE_V1_POOL_ABI
+        self.address: ChecksumAddress = to_checksum_address(address)
 
         _w3 = config.get_web3()
+        chain_id = _w3.eth.chain_id
+
+        pool_attributes: Optional[CurveStableSwapPoolAttributes] = None
+        if chain_id in POOL_ATTRIBUTES and self.address in POOL_ATTRIBUTES[chain_id]:
+            pool_attributes = POOL_ATTRIBUTES[chain_id][self.address]
+
         _w3_contract = self._w3_contract
         _w3_registry_contract = _w3.eth.contract(
-            address=CURVE_REGISTRY_ADDRESS, abi=CURVE_V1_REGISTRY_ABI
+            address=CURVE_V1_REGISTRY_ADDRESS, abi=CURVE_V1_REGISTRY_ABI
         )
         _w3_factory_contract = _w3.eth.contract(
             address=CURVE_V1_FACTORY_ADDRESS,
             abi=CURVE_V1_FACTORY_ABI,
         )
 
-        self.update_block = state_block if state_block is not None else _w3.eth.get_block_number()
+        if state_block is None:
+            state_block = _w3.eth.get_block_number()
+        self.update_block = state_block
 
-        self.fee = _w3_contract.functions.fee().call(block_identifier=self.update_block)
-        self.admin_fee = _w3_contract.functions.admin_fee().call(block_identifier=self.update_block)
-        self.a_coefficient = _w3_contract.functions.A().call(block_identifier=self.update_block)
+        if pool_attributes:
+            self.fee = pool_attributes.fee
+            self.admin_fee = pool_attributes.admin_fee
+        else:
+            self.fee = _w3_contract.functions.fee().call(block_identifier=state_block)
+            self.admin_fee = _w3_contract.functions.admin_fee().call(block_identifier=state_block)
 
+        self.a_coefficient = _w3_contract.functions.A().call(block_identifier=state_block)
         self.initial_a_coefficient: Optional[int] = None
         self.initial_a_coefficient_time: Optional[int] = None
         self.future_a_coefficient: Optional[int] = None
@@ -122,16 +138,16 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         try:
             self.initial_a_coefficient = _w3_contract.functions.initial_A().call(
-                block_identifier=self.update_block
+                block_identifier=state_block
             )
             self.initial_a_coefficient_time = _w3_contract.functions.initial_A_time().call(
-                block_identifier=self.update_block
+                block_identifier=state_block
             )
             self.future_a_coefficient = _w3_contract.functions.future_A().call(
-                block_identifier=self.update_block
+                block_identifier=state_block
             )
             self.future_a_coefficient_time = _w3_contract.functions.future_A_time().call(
-                block_identifier=self.update_block
+                block_identifier=state_block
             )
         except Exception:
             self.initial_a_coefficient = None
@@ -144,51 +160,80 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             logger.debug(f"{self.future_a_coefficient=}")
             logger.debug(f"{self.future_a_coefficient_time=}")
 
-        chain_id = _w3.eth.chain_id
+        if pool_attributes:
+            lp_token_address = pool_attributes.lp_token
+            token_addresses = pool_attributes.coins
+            self._coin_index_type = pool_attributes.coin_index_type
+        else:
+            # Identify the coins input format (int128 or uint256)
+            # Some contracts accept token_id as an int128, some accept uint256
+            for _type in ["int128", "uint256"]:
+                try:
+                    eth_abi.decode(
+                        types=["address"],
+                        data=_w3.eth.call(
+                            transaction={
+                                "to": self.address,
+                                "data": Web3.keccak(text=f"coins({_type})")[:4]
+                                + eth_abi.encode(types=[_type], args=[0]),
+                            },
+                            block_identifier=state_block,
+                        ),
+                    )
+                except (
+                    eth_abi.exceptions.InsufficientDataBytes,
+                    web3.exceptions.ContractLogicError,
+                ):
+                    continue
+                else:
+                    self._coin_index_type = _type
+                    break
 
-        # Identify the coins input format (int128 or uint256)
-        # Some contracts accept token_id as an int128, some accept uint256
-        for _type in ["int128", "uint256", None]:
-            if _type is None:
-                raise Exception(f"Could not identify index type for pool {self.address}")
-            try:
-                eth_abi.decode(
+            token_addresses = []
+            for token_id in range(8):
+                try:
+                    token_address, *_ = eth_abi.decode(
+                        types=["address"],
+                        data=_w3.eth.call(
+                            transaction={
+                                "to": self.address,
+                                "data": Web3.keccak(text=f"coins({self._coin_index_type})")[:4]
+                                + eth_abi.encode(types=[self._coin_index_type], args=[token_id]),
+                            },
+                            block_identifier=state_block,
+                        ),
+                    )
+                except web3.exceptions.ContractLogicError:
+                    break
+                else:
+                    token_addresses.append(token_address)
+
+            lp_token_address = ZERO_ADDRESS
+            for contract in [_w3_registry_contract, _w3_factory_contract]:
+                lp_token_address, *_ = eth_abi.decode(
                     types=["address"],
                     data=_w3.eth.call(
                         transaction={
-                            "to": self.address,
-                            "data": Web3.keccak(text=f"coins({_type})")[:4]
-                            + eth_abi.encode(types=[_type], args=[0]),
+                            "to": contract.address,
+                            "data": Web3.keccak(text="get_lp_token(address)")[:4]
+                            + eth_abi.encode(types=["address"], args=[self.address]),
                         },
-                        block_identifier=self.update_block,
+                        block_identifier=state_block,
                     ),
                 )
-            except (eth_abi.exceptions.InsufficientDataBytes, web3.exceptions.ContractLogicError):
-                continue
-            else:
-                self._coin_index_type = _type
-                break
+                if lp_token_address != ZERO_ADDRESS:
+                    break
+                else:
+                    continue
 
-        token_addresses = []
-        for token_id in range(8):
-            try:
-                token_address, *_ = eth_abi.decode(
-                    types=["address"],
-                    data=_w3.eth.call(
-                        transaction={
-                            "to": self.address,
-                            "data": Web3.keccak(text=f"coins({self._coin_index_type})")[:4]
-                            + eth_abi.encode(types=[self._coin_index_type], args=[token_id]),
-                        },
-                        block_identifier=self.update_block,
-                    ),
-                )
-            except web3.exceptions.ContractLogicError:
-                break
-            else:
-                token_addresses.append(token_address)
+            if lp_token_address == ZERO_ADDRESS:
+                raise ValueError(f"Could not identify LP token for pool {self.address}")
 
         _token_manager = Erc20TokenHelperManager(chain_id)
+        self.lp_token = _token_manager.get_erc20token(
+            address=lp_token_address,
+            silent=silent,
+        )
         self.tokens = [
             _token_manager.get_erc20token(
                 address=token_address,
@@ -207,49 +252,37 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                         "data": Web3.keccak(text=f"balances({self._coin_index_type})")[:4]
                         + eth_abi.encode(types=[self._coin_index_type], args=[token_id]),
                     },
-                    block_identifier=self.update_block,
+                    block_identifier=state_block,
                 ),
             )
             self.balances.append(token_balance)
 
-        lp_token_address, *_ = eth_abi.decode(
-            types=["address"],
-            data=_w3.eth.call(
-                transaction={
-                    "to": _w3_registry_contract.address,
-                    "data": Web3.keccak(text="get_lp_token(address)")[:4]
-                    + eth_abi.encode(types=["address"], args=[self.address]),
-                },
-                block_identifier=self.update_block,
-            ),
-        )
-        self.lp_token = _token_manager.get_erc20token(
-            address=lp_token_address,
-            silent=silent,
-        )
+        if pool_attributes:
+            self.is_metapool = pool_attributes.is_metapool
+            if self.is_metapool is True:
+                base_pool_address = pool_attributes.basepool
+        else:
+            self.is_metapool = False
+            for contract in [_w3_factory_contract, _w3_registry_contract]:
+                try:
+                    is_meta, *_ = eth_abi.decode(
+                        types=["bool"],
+                        data=_w3.eth.call(
+                            transaction={
+                                "to": contract.address,
+                                "data": Web3.keccak(text="is_meta(address)")[:4]
+                                + eth_abi.encode(types=["address"], args=[self.address]),
+                            },
+                            block_identifier=state_block,
+                        ),
+                    )
+                except Exception:
+                    continue
+                else:
+                    if is_meta is True:
+                        self.is_metapool = True
+                        break
 
-        self.is_metapool = False
-        for contract in [_w3_factory_contract, _w3_registry_contract]:
-            try:
-                is_meta, *_ = eth_abi.decode(
-                    types=["bool"],
-                    data=_w3.eth.call(
-                        transaction={
-                            "to": contract.address,
-                            "data": Web3.keccak(text="is_meta(address)")[:4]
-                            + eth_abi.encode(types=["address"], args=[self.address]),
-                        },
-                        block_identifier=self.update_block,
-                    ),
-                )
-            except Exception:
-                continue
-            else:
-                if is_meta is True:
-                    self.is_metapool = True
-                    break
-
-        if self.is_metapool is True:
             base_pool_address, *_ = eth_abi.decode(
                 types=["address"],
                 data=_w3.eth.call(
@@ -261,14 +294,19 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                             args=[self.tokens[1].address],
                         ),
                     },
-                    block_identifier=self.update_block,
+                    block_identifier=state_block,
                 ),
             )
-            self.base_pool = CurveStableswapPool(
-                base_pool_address,
-                state_block=self.update_block,
-                silent=silent,
-            )
+
+        if self.is_metapool is True:
+            if TYPE_CHECKING:
+                assert base_pool_address is not None
+            try:
+                self.base_pool = AllPools(chain_id)[to_checksum_address(base_pool_address)]
+            except KeyError:
+                self.base_pool = CurveStableswapPool(
+                    base_pool_address, state_block=state_block, silent=silent
+                )
             self.tokens_underlying = [self.tokens[0]] + self.base_pool.tokens
 
         # 3pool example
@@ -305,7 +343,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                         "to": self.address,
                         "data": Web3.keccak(text="offpeg_fee_multiplier()")[:4],
                     },
-                    block_identifier=self.update_block,
+                    block_identifier=state_block,
                 ),
             )
         elif self.address == "0x2dded6Da1BF5DBdF597C45fcFaa3194e53EcfeAF":
@@ -329,7 +367,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                         "to": self.address,
                         "data": Web3.keccak(text="oracle_method()")[:4],
                     },
-                    block_identifier=self.update_block,
+                    block_identifier=state_block,
                 ),
             )
         elif self.address == "0xEB16Ae0052ed37f479f7fe63849198Df1765a733":
@@ -340,7 +378,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                         "to": self.address,
                         "data": Web3.keccak(text="offpeg_fee_multiplier()")[:4],
                     },
-                    block_identifier=self.update_block,
+                    block_identifier=state_block,
                 ),
             )
 
@@ -348,18 +386,15 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         token_string = "-".join([token.symbol for token in self.tokens])
         self.name = f"{token_string} (CurveStable, {fee_string}%)"
 
-        self.state = CurveStableswapPoolState(
-            pool=self,
-            balances=self.balances,
-        )
+        self._subscribers: Set[Subscriber] = set()
+        self.state: CurveStableswapPoolState
+        self._update_pool_state()
         self._pool_state_archive: Dict[int, CurveStableswapPoolState] = {
-            0: CurveStableswapPoolState(pool=self, balances=self.balances),
-            self.update_block: self.state,
+            0: self.state,
+            state_block: self.state,
         }
 
         AllPools(chain_id)[self.address] = self
-
-        self._subscribers: Set[Subscriber] = set()
 
         if not silent:
             logger.info(
@@ -368,9 +403,31 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             for token_id, (token, balance) in enumerate(zip(self.tokens, self.balances)):
                 logger.info(f"• Token {token_id}: {token} - Reserves: {balance}")
 
+        # print(
+        #     f'"{self.address}" :',
+        #     CurveStableSwapPoolAttributes(
+        #         address=self.address,
+        #         lp_token=self.lp_token.address,
+        #         coins=[token.address for token in self.tokens],
+        #         coin_index_type=self._coin_index_type,
+        #         underlying_coins=[token.address for token in self.tokens_underlying]
+        #         if self.is_metapool
+        #         else None,
+        #         fee=self.fee,
+        #         admin_fee=self.admin_fee,
+        #         is_metapool=self.is_metapool,
+        #         basepool=self.base_pool.address if self.is_metapool else None,
+        #     ),
+        # )
+
     def __repr__(self):  # pragma: no cover
         token_string = "-".join([token.symbol for token in self.tokens])
         return f"CurveStableswapPool(address={self.address}, tokens={token_string}, fee={100*self.fee/self.FEE_DENOMINATOR:.2f}%, A={self.a_coefficient})"
+
+    def _update_pool_state(self):
+        with self._state_lock:
+            self.state = CurveStableswapPoolState(pool=self, balances=self.balances)
+        self._notify_subscribers()
 
     @property
     def _w3_contract(self) -> Contract:
@@ -382,6 +439,8 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
     def _A(
         self,
         timestamp: Optional[int] = None,
+        block_identifier: Optional[int] = None,
+        average_block_time: int = 12,
     ) -> int:
         """
         Handle ramping A up or down
@@ -396,7 +455,17 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             return self.a_coefficient * self.A_PRECISION
 
         if timestamp is None:
-            timestamp = int(config.get_web3().eth.get_block("latest")["timestamp"])
+            _w3 = config.get_web3()
+            if block_identifier is None:
+                timestamp = _w3.eth.get_block("latest")["timestamp"]
+            else:
+                current_block = _w3.eth.block_number
+                if block_identifier <= current_block:
+                    timestamp = _w3.eth.get_block(block_identifier)["timestamp"]
+                else:
+                    timestamp = _w3.eth.get_block("latest")["timestamp"] + average_block_time * (
+                        block_identifier - current_block
+                    )
 
         t1 = self.future_a_coefficient_time
         A1 = self.future_a_coefficient
@@ -424,32 +493,37 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         return scaled_A
 
-    def _get_scaled_redemption_price(self):
+    def _get_scaled_redemption_price(self, block_identifier: Optional[int] = None):
+        _w3 = config.get_web3()
+
+        if block_identifier is None:
+            block_identifier = _w3.eth.block_number
+
         REDEMPTION_PRICE_SCALE = 10**9
 
         snap_contract_address, *_ = eth_abi.decode(
             types=["address"],
-            data=config.get_web3().eth.call(
+            data=_w3.eth.call(
                 transaction={
                     "to": self.address,
                     "data": Web3.keccak(text="redemption_price_snap()")[:4],
                 },
-                block_identifier=self.update_block,
+                block_identifier=block_identifier,
             ),
         )
         rate, *_ = eth_abi.decode(
             types=["uint256"],
-            data=config.get_web3().eth.call(
+            data=_w3.eth.call(
                 transaction={
                     "to": to_checksum_address(snap_contract_address),
                     "data": Web3.keccak(text="snappedRedemptionPrice()")[:4],
                 },
-                block_identifier=self.update_block,
+                block_identifier=block_identifier,
             ),
         )
         return rate // REDEMPTION_PRICE_SCALE
 
-    def _get_dy(self, i: int, j: int, dx: int) -> int:
+    def _get_dy(self, i: int, j: int, dx: int, block_identifier: Optional[int] = None) -> int:
         """
         @notice Calculate the current output dy given input dx
         @dev Index values can be found via the `coins` public getter method
@@ -459,6 +533,10 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         @return Amount of `j` predicted
         """
         # ref: https://github.com/curveresearch/notes/blob/main/stableswap.pdf
+
+        _w3 = config.get_web3()
+        if block_identifier is None:
+            block_identifier = _w3.eth.block_number
 
         def _dynamic_fee(xpi: int, xpj: int, _fee: int, _feemul: int) -> int:
             # dynamic fee pools:
@@ -479,12 +557,12 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x3Fb78e61784C9c637D560eDE23Ad57CA1294c14a",
         ):
             live_balances = [
-                token.get_balance(self.address, block_identifier=self.update_block)
+                token.get_balance(self.address, block_identifier=block_identifier)
                 for token in self.tokens
             ]
             admin_balances = [
                 self._w3_contract.functions.admin_balances(token_index).call(
-                    block_identifier=self.update_block
+                    block_identifier=block_identifier
                 )
                 for token_index, _ in enumerate(self.tokens)
             ]
@@ -502,11 +580,8 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         elif self.address == "0x618788357D0EBd8A37e763ADab3bc575D54c2C7d":
             rates = [
-                self._get_scaled_redemption_price(),
-                self._get_virtual_price(),
-                # self.base_pool._w3_contract.functions.get_virtual_price().call(
-                #     block_identifier=self.update_block
-                # ),
+                self._get_scaled_redemption_price(block_identifier=block_identifier),
+                self._get_virtual_price(block_identifier=block_identifier),
             ]
             xp = self._xp(rates=rates, balances=self.balances)
             # TODO: remove assert after verification
@@ -527,10 +602,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             ):
                 rates[0] = 10**self.PRECISION_DECIMALS
 
-            rates[1] = self._get_virtual_price()
-            # rates[1] = self.base_pool._w3_contract.functions.get_virtual_price().call(
-            #     block_identifier=self.update_block
-            # )
+            rates[1] = self._get_virtual_price(block_identifier=block_identifier)
 
             xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
@@ -555,7 +627,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             for k in range(N_COINS - 1):
                 price_scale[k], *_ = eth_abi.decode(
                     types=["uint256"],
-                    data=config.get_web3().eth.call(
+                    data=_w3.eth.call(
                         transaction={
                             "to": self.address,
                             "data": Web3.keccak(text="price_scale(uint256)")[:4]
@@ -564,7 +636,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                                 args=[k],
                             ),
                         },
-                        block_identifier=self.update_block,
+                        block_identifier=block_identifier,
                     ),
                 )
 
@@ -580,23 +652,23 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
             gamma, *_ = eth_abi.decode(
                 types=["uint256"],
-                data=config.get_web3().eth.call(
+                data=_w3.eth.call(
                     transaction={
                         "to": self.address,
                         "data": Web3.keccak(text="gamma()")[:4],
                     },
-                    block_identifier=self.update_block,
+                    block_identifier=block_identifier,
                 ),
             )
 
             D, *_ = eth_abi.decode(
                 types=["uint256"],
-                data=config.get_web3().eth.call(
+                data=_w3.eth.call(
                     transaction={
                         "to": self.address,
                         "data": Web3.keccak(text="D()")[:4],
                     },
-                    block_identifier=self.update_block,
+                    block_identifier=block_identifier,
                 ),
             )
 
@@ -609,7 +681,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             dy //= precisions[j]
             fee_calc, *_ = eth_abi.decode(
                 types=["uint256"],
-                data=config.get_web3().eth.call(
+                data=_w3.eth.call(
                     transaction={
                         "to": self.address,
                         "data": Web3.keccak(text="fee_calc(uint256[3])")[:4]
@@ -618,7 +690,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                             args=[xp],
                         ),
                     },
-                    block_identifier=self.update_block,
+                    block_identifier=block_identifier,
                 ),
             )
             dy -= fee_calc * dy // 10**10
@@ -707,19 +779,19 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
             balances = [
                 self.tokens[ETH_COIN_INDEX].get_balance(
-                    address=self.address, block_identifier=self.update_block
+                    address=self.address, block_identifier=block_identifier
                 )
                 - self._w3_contract.functions.admin_balances(ETH_COIN_INDEX).call(
-                    block_identifier=self.update_block
+                    block_identifier=block_identifier
                 ),
                 self.tokens[DERIVATIVE_ETH_COIN_INDEX].get_balance(
-                    address=self.address, block_identifier=self.update_block
+                    address=self.address, block_identifier=block_identifier
                 )
                 - self._w3_contract.functions.admin_balances(DERIVATIVE_ETH_COIN_INDEX).call(
-                    block_identifier=self.update_block
+                    block_identifier=block_identifier
                 ),
             ]
-            rates = self._stored_rates_from_oracle()
+            rates = self._stored_rates_from_oracle(block_identifier=block_identifier)
             xp = self._xp(rates=rates, balances=balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
@@ -732,7 +804,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0xA5407eAE9Ba41422680e2e00537571bcC53efBfD",
             "0x52EA46506B9CC5Ef470C5bf89f17Dc28bB35D85C",
         ):
-            rates = self._stored_rates_from_ctokens()
+            rates = self._stored_rates_from_ctokens(block_identifier=block_identifier)
             xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
@@ -742,7 +814,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         elif self.address in ("0x2dded6Da1BF5DBdF597C45fcFaa3194e53EcfeAF",):
             assert self.precision_multipliers == [1, 10**12, 10**12]
-            rates = self._stored_rates_from_cytokens()
+            rates = self._stored_rates_from_cytokens(block_identifier=block_identifier)
             xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
@@ -750,7 +822,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             return (dy - (self.fee * dy // self.FEE_DENOMINATOR)) * self.PRECISION // rates[j]
 
         elif self.address in ("0x06364f10B501e868329afBc005b3492902d6C763",):
-            rates = self._stored_rates_from_ytokens()
+            rates = self._stored_rates_from_ytokens(block_identifier=block_identifier)
             xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
@@ -762,7 +834,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27",
             "0x45F783CCE6B7FF23B2ab2D70e416cdb7D6055f51",
         ):
-            rates = self._stored_rates_from_ytokens()
+            rates = self._stored_rates_from_ytokens(block_identifier=block_identifier)
             xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
@@ -771,7 +843,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             return dy - fee
 
         elif self.address in ("0xA96A65c051bF88B4095Ee1f2451C2A9d43F53Ae2",):
-            rates = self._stored_rates_from_aeth()
+            rates = self._stored_rates_from_aeth(block_identifier=block_identifier)
             xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
@@ -780,7 +852,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             return (dy - fee) * self.PRECISION // rates[j]
 
         elif self.address in ("0xF9440930043eb3997fc70e1339dBb11F341de7A8",):
-            rates = self._stored_rates_from_reth()
+            rates = self._stored_rates_from_reth(block_identifier=block_identifier)
             xp = self._xp(rates=rates, balances=self.balances)
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
@@ -790,12 +862,12 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         elif self.address in ("0xEB16Ae0052ed37f479f7fe63849198Df1765a733",):
             live_balances = [
-                token.get_balance(self.address, block_identifier=self.update_block)
+                token.get_balance(self.address, block_identifier=block_identifier)
                 for token in self.tokens
             ]
             admin_balances = [
                 self._w3_contract.functions.admin_balances(token_index).call(
-                    block_identifier=self.update_block
+                    block_identifier=block_identifier
                 )
                 for token_index, _ in enumerate(self.tokens)
             ]
@@ -822,12 +894,12 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         elif self.address in ("0xDeBF20617708857ebe4F679508E7b7863a8A8EeE",):
             live_balances = [
-                token.get_balance(self.address, block_identifier=self.update_block)
+                token.get_balance(self.address, block_identifier=block_identifier)
                 for token in self.tokens
             ]
             admin_balances = [
                 self._w3_contract.functions.admin_balances(token_index).call(
-                    block_identifier=self.update_block
+                    block_identifier=block_identifier
                 )
                 for token_index, _ in enumerate(self.tokens)
             ]
@@ -864,21 +936,30 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - fee) * self.PRECISION // rates[j]
 
-    def _get_virtual_price(self):
+    def _get_virtual_price(self, block_identifier: Optional[int] = None):
+        if block_identifier is None:
+            block_identifier = config.get_web3().eth.block_number
+
         vp_rate, *_ = (
             self.base_pool._w3_contract.functions.get_virtual_price().call(
-                block_identifier=self.update_block
+                block_identifier=block_identifier
             ),
         )
         return vp_rate
 
-    def _calc_token_amount(self, amounts: List[int], deposit: bool) -> int:
+    def _calc_token_amount(
+        self, amounts: List[int], deposit: bool, block_identifier: Optional[int] = None
+    ) -> int:
         """
         Simplified method to calculate addition or reduction in token supply at
         deposit or withdrawal without taking fees into account (but looking at
         slippage).
         Needed to prevent front-running, not for precise calculations!
         """
+
+        _w3 = config.get_web3()
+        if block_identifier is None:
+            block_identifier = _w3.eth.block_number
 
         N_COINS = len(self.tokens)
 
@@ -895,7 +976,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         xp = self._xp(rates=self.rate_multipliers, balances=_balances)
         D1: int = self._get_D(xp, amp)
-        token_amount: int = self.lp_token.get_total_supply(block=self.update_block)
+        token_amount: int = self.lp_token.get_total_supply(block=block_identifier)
 
         if deposit:
             diff = D1 - D0
@@ -904,7 +985,12 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         return diff * token_amount // D0
 
-    def _calc_withdraw_one_coin(self, _token_amount: int, i: int) -> Tuple[int, ...]:
+    def _calc_withdraw_one_coin(
+        self, _token_amount: int, i: int, block_identifier: Optional[int] = None
+    ) -> Tuple[int, ...]:
+        if block_identifier is None:
+            block_identifier = config.get_web3().eth.block_number
+
         if self.address in (
             "0xDcEF968d416a41Cdac0ED8702fAC8128A64241A2",
             "0xf253f83AcA21aAbD2A20553AE0BF7F65C755A07F",
@@ -918,7 +1004,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             xp = self._xp(rates=self.rate_multipliers, balances=self.balances)
             D0 = self._get_D(xp, amp)
 
-            total_supply = self.lp_token.get_total_supply()
+            total_supply = self.lp_token.get_total_supply(block=block_identifier)
             D1 = D0 - _token_amount * D0 // total_supply
             new_y = self._get_y_D(amp, i, xp, D1)
             xp_reduced = xp.copy()
@@ -952,7 +1038,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             _fee = self.fee * N_COINS // (4 * (N_COINS - 1))
             precisions = self.precision_multipliers
 
-            total_supply = self.lp_token.get_total_supply(block=self.update_block)
+            total_supply = self.lp_token.get_total_supply(block=block_identifier)
 
             xp = self._xp(rates=self.rate_multipliers, balances=self.balances)
 
@@ -978,16 +1064,21 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         else:
             raise Exception("withdrawal method not implemented")
 
-    def _get_dy_underlying(self, i: int, j: int, dx: int) -> int:
+    def _get_dy_underlying(
+        self, i: int, j: int, dx: int, block_identifier: Optional[int] = None
+    ) -> int:
+        if block_identifier is None:
+            block_identifier = config.get_web3().eth.block_number
+
         if self.address == "0x618788357D0EBd8A37e763ADab3bc575D54c2C7d":
             BASE_N_COINS = len(self.base_pool.tokens)
             MAX_COIN = len(self.tokens) - 1
             REDEMPTION_COIN = 0
 
             # dx and dy in underlying units
-            vp_rate = self._get_virtual_price()
+            vp_rate = self._get_virtual_price(block_identifier=block_identifier)
             rates = [
-                self._get_scaled_redemption_price(),
+                self._get_scaled_redemption_price(block_identifier=block_identifier),
                 vp_rate,
             ]
             xp: List[int] = self._xp(rates=rates, balances=self.balances)
@@ -1013,7 +1104,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     base_inputs[base_i] = dx
                     # Token amount transformed to underlying "dollars"
                     x = (
-                        self.base_pool._calc_token_amount(amounts=base_inputs, deposit=True)
+                        self.base_pool._calc_token_amount(
+                            amounts=base_inputs, deposit=True, block_identifier=block_identifier
+                        )
                         * vp_rate
                         // self.PRECISION
                     )
@@ -1030,14 +1123,18 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             dy = xp[meta_j] - y - 1
             dy = dy - self.fee * dy // self.FEE_DENOMINATOR
             if j == REDEMPTION_COIN:
-                dy = (dy * self.PRECISION) // self._get_scaled_redemption_price()
+                dy = (dy * self.PRECISION) // self._get_scaled_redemption_price(
+                    block_identifier=block_identifier
+                )
 
             # If output is going via the metapool
             if base_j >= 0:
                 # j is from BasePool
                 # The fee is already accounted for
                 dy, *_ = self.base_pool._calc_withdraw_one_coin(
-                    dy * self.PRECISION // vp_rate, base_j
+                    _token_amount=dy * self.PRECISION // vp_rate,
+                    i=base_j,
+                    block_identifier=block_identifier,
                 )
 
             return dy
@@ -1075,7 +1172,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     base_inputs[base_i] = dx
                     # Token amount transformed to underlying "dollars"
                     x = (
-                        self.base_pool._calc_token_amount(amounts=base_inputs, deposit=True)
+                        self.base_pool._calc_token_amount(
+                            amounts=base_inputs, deposit=True, block_identifier=block_identifier
+                        )
                         * rates[1]
                         // self.PRECISION
                     )
@@ -1085,7 +1184,12 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     x += xp[MAX_COIN]
                 else:
                     # If both are from the base pool
-                    return self.base_pool._get_dy(base_i, base_j, dx)
+                    return self.base_pool._get_dy(
+                        i=base_i,
+                        j=base_j,
+                        dx=dx,
+                        block_identifier=block_identifier,
+                    )
 
             # This pool is involved only when in-pool assets are used
             y = self._get_y(meta_i, meta_j, x, xp)
@@ -1099,7 +1203,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 # j is from BasePool
                 # The fee is already accounted for
                 dy, *_ = self.base_pool._calc_withdraw_one_coin(
-                    dy * self.PRECISION // rates[1], base_j
+                    _token_amount=dy * self.PRECISION // rates[1],
+                    i=base_j,
+                    block_identifier=block_identifier,
                 )
 
             return dy
@@ -1108,7 +1214,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             BASE_N_COINS = len(self.base_pool.tokens)
             MAX_COIN = len(self.tokens) - 1
 
-            rates = [self.PRECISION, self._get_virtual_price()]
+            rates = [self.PRECISION, self._get_virtual_price(block_identifier=block_identifier)]
             xp = self._xp(rates=rates, balances=self.balances)
 
             x = 0
@@ -1134,7 +1240,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     base_inputs[base_i] = dx
                     # Token amount transformed to underlying "dollars"
                     x = (
-                        self.base_pool._calc_token_amount(amounts=base_inputs, deposit=True)
+                        self.base_pool._calc_token_amount(
+                            amounts=base_inputs, deposit=True, block_identifier=block_identifier
+                        )
                         * rates[1]
                         // self.PRECISION
                     )
@@ -1144,7 +1252,12 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     x += xp[MAX_COIN]
                 else:
                     # If both are from the base pool
-                    return self.base_pool._get_dy(base_i, base_j, dx)
+                    return self.base_pool._get_dy(
+                        i=base_i,
+                        j=base_j,
+                        dx=dx,
+                        block_identifier=block_identifier,
+                    )
 
             # This pool is involved only when in-pool assets are used
             y = self._get_y(meta_i, meta_j, x, xp)
@@ -1158,7 +1271,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 # j is from BasePool
                 # The fee is already accounted for
                 dy, *_ = self.base_pool._calc_withdraw_one_coin(
-                    dy * self.PRECISION // rates[1], base_j
+                    _token_amount=dy * self.PRECISION // rates[1],
+                    i=base_j,
+                    block_identifier=block_identifier,
                 )
 
             return dy
@@ -1166,7 +1281,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         else:
             rates = self.rate_multipliers.copy()
 
-            vp_rate = self._get_virtual_price()
+            vp_rate = self._get_virtual_price(block_identifier=block_identifier)
             rates[-1] = vp_rate
 
             xp = self._xp(rates=rates, balances=self.balances)
@@ -1195,7 +1310,11 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     base_inputs[base_i] = dx
                     # Token amount transformed to underlying "dollars"
                     x = (
-                        self.base_pool._calc_token_amount(base_inputs, True)
+                        self.base_pool._calc_token_amount(
+                            amounts=base_inputs,
+                            deposit=True,
+                            block_identifier=block_identifier,
+                        )
                         * vp_rate
                         // self.PRECISION
                     )
@@ -1205,7 +1324,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     x += xp[MAX_COIN]
                 else:
                     # If both are from the base pool
-                    return self.base_pool._get_dy(base_i, base_j, dx)
+                    return self.base_pool._get_dy(
+                        i=base_i, j=base_j, dx=dx, block_identifier=block_identifier
+                    )
 
             # This pool is involved only when in-pool assets are used
             y = self._get_y(meta_i, meta_j, x, xp)
@@ -1219,7 +1340,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 # j is from BasePool
                 # The fee is already accounted for
                 dy, *_ = self.base_pool._calc_withdraw_one_coin(
-                    dy * self.PRECISION // vp_rate, base_j
+                    _token_amount=dy * self.PRECISION // vp_rate,
+                    i=base_j,
+                    block_identifier=block_identifier,
                 )
 
             return dy
@@ -1624,7 +1747,11 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         raise Exception("_newton_y() did not converge")
 
-    def _stored_rates_from_ctokens(self):
+    def _stored_rates_from_ctokens(self, block_identifier: Optional[int] = None):
+        _w3 = config.get_web3()
+        if block_identifier is None:
+            block_identifier = _w3.eth.block_number
+
         result = []
         for token, use_lending, multiplier in zip(
             self.tokens,
@@ -1636,42 +1763,45 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             else:
                 rate, *_ = eth_abi.decode(
                     types=["uint256"],
-                    data=config.get_web3().eth.call(
+                    data=_w3.eth.call(
                         transaction={
                             "to": token.address,
                             "data": Web3.keccak(text="exchangeRateStored()")[:4],
                         },
-                        block_identifier=self.update_block,
+                        block_identifier=block_identifier,
                     ),
                 )
                 supply_rate, *_ = eth_abi.decode(
                     types=["uint256"],
-                    data=config.get_web3().eth.call(
+                    data=_w3.eth.call(
                         transaction={
                             "to": token.address,
                             "data": Web3.keccak(text="supplyRatePerBlock()")[:4],
                         },
-                        block_identifier=self.update_block,
+                        block_identifier=block_identifier,
                     ),
                 )
                 old_block, *_ = eth_abi.decode(
                     types=["uint256"],
-                    data=config.get_web3().eth.call(
+                    data=_w3.eth.call(
                         transaction={
                             "to": token.address,
                             "data": Web3.keccak(text="accrualBlockNumber()")[:4],
                         },
-                        block_identifier=self.update_block,
+                        block_identifier=block_identifier,
                     ),
                 )
-                # TODO: check if +1 is needed to simulate next block
-                next_block = config.get_web3().eth.get_block_number()
-                rate += rate * supply_rate * (next_block - old_block) // self.PRECISION
+
+                rate += rate * supply_rate * (block_identifier - old_block) // self.PRECISION
 
             result.append(multiplier * rate)
         return result
 
-    def _stored_rates_from_ytokens(self):
+    def _stored_rates_from_ytokens(self, block_identifier: Optional[int] = None):
+        _w3 = config.get_web3()
+        if block_identifier is None:
+            block_identifier = _w3.eth.block_number
+
         # ref: https://etherscan.io/address/0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27#code
 
         result = []
@@ -1683,12 +1813,12 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             if use_lending:
                 rate, *_ = eth_abi.decode(
                     types=["uint256"],
-                    data=config.get_web3().eth.call(
+                    data=_w3.eth.call(
                         transaction={
                             "to": token.address,
                             "data": Web3.keccak(text="getPricePerFullShare()")[:4],
                         },
-                        block_identifier=self.update_block,
+                        block_identifier=block_identifier,
                     ),
                 )
             else:
@@ -1698,74 +1828,83 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         return result
 
-    def _stored_rates_from_cytokens(self):
-        next_block = config.get_web3().eth.get_block_number()
+    def _stored_rates_from_cytokens(self, block_identifier: Optional[int] = None):
+        _w3 = config.get_web3()
+        if block_identifier is None:
+            block_identifier = _w3.eth.block_number
 
         result = []
         for token, precision_multiplier in zip(self.tokens, self.precision_multipliers):
             rate, *_ = eth_abi.decode(
                 types=["uint256"],
                 data=(
-                    config.get_web3().eth.call(
+                    _w3.eth.call(
                         transaction={
                             "to": token.address,
                             "data": Web3.keccak(text="exchangeRateStored()")[:4],
                         },
-                        block_identifier=self.update_block,
+                        block_identifier=block_identifier,
                     )
                 ),
             )
             supply_rate, *_ = eth_abi.decode(
                 types=["uint256"],
-                data=config.get_web3().eth.call(
+                data=_w3.eth.call(
                     transaction={
                         "to": token.address,
                         "data": Web3.keccak(text="supplyRatePerBlock()")[:4],
                     },
-                    block_identifier=self.update_block,
+                    block_identifier=block_identifier,
                 ),
             )
             old_block, *_ = eth_abi.decode(
                 types=["uint256"],
-                data=config.get_web3().eth.call(
+                data=_w3.eth.call(
                     transaction={
                         "to": token.address,
                         "data": Web3.keccak(text="accrualBlockNumber()")[:4],
                     },
-                    block_identifier=self.update_block,
+                    block_identifier=block_identifier,
                 ),
             )
 
-            rate += rate * supply_rate * (next_block - old_block) // self.PRECISION
-
+            rate += rate * supply_rate * (block_identifier - old_block) // self.PRECISION
             result.append(precision_multiplier * rate)
 
         return result
 
-    def _stored_rates_from_reth(self):
+    def _stored_rates_from_reth(self, block_identifier: Optional[int] = None):
+        _w3 = config.get_web3()
+        if block_identifier is None:
+            block_identifier = _w3.eth.block_number
+
         # ref: https://etherscan.io/address/0xF9440930043eb3997fc70e1339dBb11F341de7A8#code
         ratio, *_ = eth_abi.decode(
             types=["uint256"],
-            data=config.get_web3().eth.call(
+            data=_w3.eth.call(
                 transaction={
                     "to": self.tokens[1].address,
                     "data": Web3.keccak(text="getExchangeRate()")[:4],
                 },
-                block_identifier=self.update_block,
+                block_identifier=block_identifier,
             ),
         )
         return [self.PRECISION, ratio]
 
-    def _stored_rates_from_aeth(self):
+    def _stored_rates_from_aeth(self, block_identifier: Optional[int] = None):
+        _w3 = config.get_web3()
+        if block_identifier is None:
+            block_identifier = _w3.eth.block_number
+
         # ref: https://etherscan.io/address/0xA96A65c051bF88B4095Ee1f2451C2A9d43F53Ae2#code
         ratio, *_ = eth_abi.decode(
             types=["uint256"],
-            data=config.get_web3().eth.call(
+            data=_w3.eth.call(
                 transaction={
                     "to": self.tokens[1].address,
                     "data": Web3.keccak(text="ratio()")[:4],
                 },
-                block_identifier=self.update_block,
+                block_identifier=block_identifier,
             ),
         )
         return [
@@ -1773,7 +1912,11 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             self.PRECISION * self.LENDING_PRECISION // ratio,
         ]
 
-    def _stored_rates_from_oracle(self):
+    def _stored_rates_from_oracle(self, block_identifier: Optional[int] = None):
+        _w3 = config.get_web3()
+        if block_identifier is None:
+            block_identifier = _w3.eth.block_number
+
         # ref: https://etherscan.io/address/0x59Ab5a5b5d617E478a2479B0cAD80DA7e2831492#code
         ORACLE_BIT_MASK = (2**32 - 1) * 256**28
 
@@ -1783,12 +1926,12 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         if oracle != 0:
             oracle_rate, *_ = eth_abi.decode(
                 types=["uint256"],
-                data=config.get_web3().eth.call(
+                data=_w3.eth.call(
                     transaction={
                         "to": to_checksum_address(HexBytes(oracle % 2**160)),
                         "data": oracle & ORACLE_BIT_MASK,
                     },
-                    block_identifier=self.update_block,
+                    block_identifier=block_identifier,
                 ),
             )
             rates = [rates[0], rates[1] * oracle_rate // self.PRECISION]
