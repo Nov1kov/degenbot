@@ -1,7 +1,6 @@
-from typing import Dict, Union
+from typing import Dict
 
-from eth_typing import ChecksumAddress
-from eth_utils import to_checksum_address
+from eth_typing import ChainId, HexAddress
 
 from ..curve.curve_stableswap_dataclasses import CurveStableSwapPoolAttributes
 
@@ -10,17 +9,17 @@ from ..curve.curve_stableswap_dataclasses import CurveStableSwapPoolAttributes
 
 
 POOL_ATTRIBUTES: Dict[
-    int,  # Chain ID
+    ChainId,  # Chain ID
     Dict[
-        Union[ChecksumAddress, str],  # Pool address
+        HexAddress,  # Pool address
         CurveStableSwapPoolAttributes,
     ],
 ] = {
-    1: {
+    ChainId.ETH: {
         "0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7": CurveStableSwapPoolAttributes(
             address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
-            lp_token="0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
-            coins=[
+            lp_token_address="0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
+            coin_addresses=[
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
@@ -29,13 +28,13 @@ POOL_ATTRIBUTES: Dict[
             fee=1000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0xDeBF20617708857ebe4F679508E7b7863a8A8EeE": CurveStableSwapPoolAttributes(
             address="0xDeBF20617708857ebe4F679508E7b7863a8A8EeE",
-            lp_token="0xFd2a8fA60Abd58Efe3EeE34dd494cD491dC14900",
-            coins=[
+            lp_token_address="0xFd2a8fA60Abd58Efe3EeE34dd494cD491dC14900",
+            coin_addresses=[
                 "0x028171bCA77440897B824Ca71D1c56caC55b68A3",
                 "0xBcca60bB61934080951369a648Fb03DF4F96263C",
                 "0x3Ed3B47Dd13EC9a98b44e6204A523E766B225811",
@@ -44,13 +43,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0xA96A65c051bF88B4095Ee1f2451C2A9d43F53Ae2": CurveStableSwapPoolAttributes(
             address="0xA96A65c051bF88B4095Ee1f2451C2A9d43F53Ae2",
-            lp_token="0xaA17A236F2bAdc98DDc0Cf999AbB47D47Fc0A6Cf",
-            coins=[
+            lp_token_address="0xaA17A236F2bAdc98DDc0Cf999AbB47D47Fc0A6Cf",
+            coin_addresses=[
                 "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
                 "0xE95A203B1a91a908F9B9CE46459d101078c2c3cb",
             ],
@@ -58,13 +57,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27": CurveStableSwapPoolAttributes(
             address="0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27",
-            lp_token="0x3B3Ac5386837Dc563660FB6a0937DFAa5924333B",
-            coins=[
+            lp_token_address="0x3B3Ac5386837Dc563660FB6a0937DFAa5924333B",
+            coin_addresses=[
                 "0xC2cB1040220768554cf699b0d863A3cd4324ce32",
                 "0x26EA744E5B887E5205727f55dFBE8685e3b21951",
                 "0xE6354ed5bC4b393a5Aad09f21c46E101e692d447",
@@ -74,13 +73,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0xA2B47E3D5c44877cca798226B7B8118F9BFb7A56": CurveStableSwapPoolAttributes(
             address="0xA2B47E3D5c44877cca798226B7B8118F9BFb7A56",
-            lp_token="0x845838DF265Dcd2c412A1Dc9e959c7d08537f8a2",
-            coins=[
+            lp_token_address="0x845838DF265Dcd2c412A1Dc9e959c7d08537f8a2",
+            coin_addresses=[
                 "0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643",
                 "0x39AA39c021dfbaE8faC545936693aC917d5E7563",
             ],
@@ -88,13 +87,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0x0Ce6a5fF5217e38315f87032CF90686C96627CAA": CurveStableSwapPoolAttributes(
             address="0x0Ce6a5fF5217e38315f87032CF90686C96627CAA",
-            lp_token="0x194eBd173F6cDacE046C53eACcE9B953F28411d1",
-            coins=[
+            lp_token_address="0x194eBd173F6cDacE046C53eACcE9B953F28411d1",
+            coin_addresses=[
                 "0xdB25f211AB05b1c97D595516F45794528a807ad8",
                 "0xD71eCFF9342A5Ced620049e616c5035F1dB98620",
             ],
@@ -102,13 +101,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0x4CA9b3063Ec5866A4B82E437059D2C43d1be596F": CurveStableSwapPoolAttributes(
             address="0x4CA9b3063Ec5866A4B82E437059D2C43d1be596F",
-            lp_token="0xb19059ebb43466C323583928285a49f558E572Fd",
-            coins=[
+            lp_token_address="0xb19059ebb43466C323583928285a49f558E572Fd",
+            coin_addresses=[
                 "0x0316EB71485b0Ab14103307bf65a021042c6d380",
                 "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
             ],
@@ -116,13 +115,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0x2dded6Da1BF5DBdF597C45fcFaa3194e53EcfeAF": CurveStableSwapPoolAttributes(
             address="0x2dded6Da1BF5DBdF597C45fcFaa3194e53EcfeAF",
-            lp_token="0x5282a4eF67D9C33135340fB3289cc1711c13638C",
-            coins=[
+            lp_token_address="0x5282a4eF67D9C33135340fB3289cc1711c13638C",
+            coin_addresses=[
                 "0x8e595470Ed749b85C6F7669de83EAe304C2ec68F",
                 "0x76Eb2FE28b36B3ee97F3Adae0C69606eeDB2A37c",
                 "0x48759F220ED983dB51fA7A8C0D2AAb8f3ce4166a",
@@ -131,13 +130,13 @@ POOL_ATTRIBUTES: Dict[
             fee=6000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0xF178C0b5Bb7e7aBF4e12A4838C7b7c5bA2C623c0": CurveStableSwapPoolAttributes(
             address="0xF178C0b5Bb7e7aBF4e12A4838C7b7c5bA2C623c0",
-            lp_token="0xcee60cFa923170e4f8204AE08B4fA6A3F5656F3a",
-            coins=[
+            lp_token_address="0xcee60cFa923170e4f8204AE08B4fA6A3F5656F3a",
+            coin_addresses=[
                 "0x514910771AF9Ca656af840dff83E8264EcF986CA",
                 "0xbBC455cb4F1B9e4bFC4B73970d360c8f032EfEE6",
             ],
@@ -145,13 +144,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0x06364f10B501e868329afBc005b3492902d6C763": CurveStableSwapPoolAttributes(
             address="0x06364f10B501e868329afBc005b3492902d6C763",
-            lp_token="0xD905e2eaeBe188fc92179b6350807D8bd91Db0D8",
-            coins=[
+            lp_token_address="0xD905e2eaeBe188fc92179b6350807D8bd91Db0D8",
+            coin_addresses=[
                 "0x99d1Fa417f94dcD62BfE781a1213c092a47041Bc",
                 "0x9777d7E2b60bB01759D0E2f8be2095df444cb07E",
                 "0x1bE5d71F2dA660BFdee8012dDc58D024448A0A59",
@@ -161,13 +160,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0x93054188d876f558f4a66B2EF1d97d16eDf0895B": CurveStableSwapPoolAttributes(
             address="0x93054188d876f558f4a66B2EF1d97d16eDf0895B",
-            lp_token="0x49849C98ae39Fff122806C06791Fa73784FB3675",
-            coins=[
+            lp_token_address="0x49849C98ae39Fff122806C06791Fa73784FB3675",
+            coin_addresses=[
                 "0xEB4C2781e4ebA804CE9a9803C67d0893436bB27D",
                 "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
             ],
@@ -175,13 +174,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0xEB16Ae0052ed37f479f7fe63849198Df1765a733": CurveStableSwapPoolAttributes(
             address="0xEB16Ae0052ed37f479f7fe63849198Df1765a733",
-            lp_token="0x02d341CcB60fAaf662bC0554d13778015d1b285C",
-            coins=[
+            lp_token_address="0x02d341CcB60fAaf662bC0554d13778015d1b285C",
+            coin_addresses=[
                 "0x028171bCA77440897B824Ca71D1c56caC55b68A3",
                 "0x6C5024Cd4F8A59110119C56f8933403A539555EB",
             ],
@@ -189,13 +188,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714": CurveStableSwapPoolAttributes(
             address="0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714",
-            lp_token="0x075b1bb99792c9E1041bA13afEf80C91a1e70fB3",
-            coins=[
+            lp_token_address="0x075b1bb99792c9E1041bA13afEf80C91a1e70fB3",
+            coin_addresses=[
                 "0xEB4C2781e4ebA804CE9a9803C67d0893436bB27D",
                 "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
                 "0xfE18be6b3Bd88A2D2A7f928d00292E7a9963CfC6",
@@ -204,13 +203,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0xc5424B857f758E906013F3555Dad202e4bdB4567": CurveStableSwapPoolAttributes(
             address="0xc5424B857f758E906013F3555Dad202e4bdB4567",
-            lp_token="0xA3D87FffcE63B53E0d54fAa1cc983B7eB0b74A9c",
-            coins=[
+            lp_token_address="0xA3D87FffcE63B53E0d54fAa1cc983B7eB0b74A9c",
+            coin_addresses=[
                 "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
                 "0x5e74C9036fb86BD7eCdcb084a0673EFc32eA31cb",
             ],
@@ -218,13 +217,13 @@ POOL_ATTRIBUTES: Dict[
             fee=2000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0xDC24316b9AE028F1497c275EB9192a3Ea0f67022": CurveStableSwapPoolAttributes(
             address="0xDC24316b9AE028F1497c275EB9192a3Ea0f67022",
-            lp_token="0x06325440D014e39736583c165C2963BA99fAf14E",
-            coins=[
+            lp_token_address="0x06325440D014e39736583c165C2963BA99fAf14E",
+            coin_addresses=[
                 "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
                 "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84",
             ],
@@ -232,13 +231,13 @@ POOL_ATTRIBUTES: Dict[
             fee=1000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0xA5407eAE9Ba41422680e2e00537571bcC53efBfD": CurveStableSwapPoolAttributes(
             address="0xA5407eAE9Ba41422680e2e00537571bcC53efBfD",
-            lp_token="0xC25a3A3b969415c80451098fa907EC722572917F",
-            coins=[
+            lp_token_address="0xC25a3A3b969415c80451098fa907EC722572917F",
+            coin_addresses=[
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
@@ -248,13 +247,13 @@ POOL_ATTRIBUTES: Dict[
             fee=2000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0x52EA46506B9CC5Ef470C5bf89f17Dc28bB35D85C": CurveStableSwapPoolAttributes(
             address="0x52EA46506B9CC5Ef470C5bf89f17Dc28bB35D85C",
-            lp_token="0x9fC689CCaDa600B6DF723D9E47D84d76664a1F23",
-            coins=[
+            lp_token_address="0x9fC689CCaDa600B6DF723D9E47D84d76664a1F23",
+            coin_addresses=[
                 "0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643",
                 "0x39AA39c021dfbaE8faC545936693aC917d5E7563",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
@@ -263,13 +262,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0x45F783CCE6B7FF23B2ab2D70e416cdb7D6055f51": CurveStableSwapPoolAttributes(
             address="0x45F783CCE6B7FF23B2ab2D70e416cdb7D6055f51",
-            lp_token="0xdF5e0e81Dff6FAF3A7e52BA697820c5e32D806A8",
-            coins=[
+            lp_token_address="0xdF5e0e81Dff6FAF3A7e52BA697820c5e32D806A8",
+            coin_addresses=[
                 "0x16de59092dAE5CcF4A1E6439D611fd0653f0Bd01",
                 "0xd6aD7a6750A7593E092a9B218d66C0A814a3436e",
                 "0x83f798e925BcD4017Eb265844FDDAbb448f1707D",
@@ -279,13 +278,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0x8038C01A0390a8c547446a0b2c18fc9aEFEcc10c": CurveStableSwapPoolAttributes(
             address="0x8038C01A0390a8c547446a0b2c18fc9aEFEcc10c",
-            lp_token="0x3a664Ab939FD8482048609f652f9a0B0677337B9",
-            coins=[
+            lp_token_address="0x3a664Ab939FD8482048609f652f9a0B0677337B9",
+            coin_addresses=[
                 "0x5BC25f649fc4e26069dDF4cF4010F9f706c23831",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -293,18 +292,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x5BC25f649fc4e26069dDF4cF4010F9f706c23831",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0x4f062658EaAF2C1ccf8C8e36D6824CDf41167956": CurveStableSwapPoolAttributes(
             address="0x4f062658EaAF2C1ccf8C8e36D6824CDf41167956",
-            lp_token="0xD2967f45c4f384DEEa880F807Be904762a3DeA07",
-            coins=[
+            lp_token_address="0xD2967f45c4f384DEEa880F807Be904762a3DeA07",
+            coin_addresses=[
                 "0x056Fd409E1d7A124BD7017459dFEa2F387b6d5Cd",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -312,18 +311,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x056Fd409E1d7A124BD7017459dFEa2F387b6d5Cd",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0x3eF6A01A0f81D6046290f3e2A8c5b843e738E604": CurveStableSwapPoolAttributes(
             address="0x3eF6A01A0f81D6046290f3e2A8c5b843e738E604",
-            lp_token="0x5B5CFE992AdAC0C9D48E05854B2d91C73a003858",
-            coins=[
+            lp_token_address="0x5B5CFE992AdAC0C9D48E05854B2d91C73a003858",
+            coin_addresses=[
                 "0xdF574c24545E5FfEcb9a659c229253D4111d87e1",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -331,18 +330,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0xdF574c24545E5FfEcb9a659c229253D4111d87e1",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0xE7a24EF0C5e95Ffb0f6684b813A78F2a3AD7D171": CurveStableSwapPoolAttributes(
             address="0xE7a24EF0C5e95Ffb0f6684b813A78F2a3AD7D171",
-            lp_token="0x6D65b498cb23deAba52db31c93Da9BFFb340FB8F",
-            coins=[
+            lp_token_address="0x6D65b498cb23deAba52db31c93Da9BFFb340FB8F",
+            coin_addresses=[
                 "0x0E2EC54fC0B509F445631Bf4b91AB8168230C752",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -350,18 +349,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x0E2EC54fC0B509F445631Bf4b91AB8168230C752",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0x8474DdbE98F5aA3179B3B3F5942D724aFcdec9f6": CurveStableSwapPoolAttributes(
             address="0x8474DdbE98F5aA3179B3B3F5942D724aFcdec9f6",
-            lp_token="0x1AEf73d49Dedc4b1778d0706583995958Dc862e6",
-            coins=[
+            lp_token_address="0x1AEf73d49Dedc4b1778d0706583995958Dc862e6",
+            coin_addresses=[
                 "0xe2f2a5C287993345a840Db3B0845fbC70f5935a5",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -369,18 +368,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0xe2f2a5C287993345a840Db3B0845fbC70f5935a5",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0xC18cC39da8b11dA8c3541C598eE022258F9744da": CurveStableSwapPoolAttributes(
             address="0xC18cC39da8b11dA8c3541C598eE022258F9744da",
-            lp_token="0xC2Ee6b0334C261ED60C72f6054450b61B8f18E35",
-            coins=[
+            lp_token_address="0xC2Ee6b0334C261ED60C72f6054450b61B8f18E35",
+            coin_addresses=[
                 "0x196f4727526eA7FB1e17b2071B3d8eAA38486988",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -388,18 +387,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x196f4727526eA7FB1e17b2071B3d8eAA38486988",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0x3E01dD8a5E1fb3481F0F589056b428Fc308AF0Fb": CurveStableSwapPoolAttributes(
             address="0x3E01dD8a5E1fb3481F0F589056b428Fc308AF0Fb",
-            lp_token="0x97E2768e8E73511cA874545DC5Ff8067eB19B787",
-            coins=[
+            lp_token_address="0x97E2768e8E73511cA874545DC5Ff8067eB19B787",
+            coin_addresses=[
                 "0x1c48f86ae57291F7686349F12601910BD8D470bb",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -407,18 +406,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x1c48f86ae57291F7686349F12601910BD8D470bb",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0x0f9cb53Ebe405d49A0bbdBD291A65Ff571bC83e1": CurveStableSwapPoolAttributes(
             address="0x0f9cb53Ebe405d49A0bbdBD291A65Ff571bC83e1",
-            lp_token="0x4f3E8F405CF5aFC05D68142F3783bDfE13811522",
-            coins=[
+            lp_token_address="0x4f3E8F405CF5aFC05D68142F3783bDfE13811522",
+            coin_addresses=[
                 "0x674C6Ad92Fd080e4004b2312b45f796a192D27a0",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -426,18 +425,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=0,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x674C6Ad92Fd080e4004b2312b45f796a192D27a0",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0x42d7025938bEc20B69cBae5A77421082407f053A": CurveStableSwapPoolAttributes(
             address="0x42d7025938bEc20B69cBae5A77421082407f053A",
-            lp_token="0x7Eb40E450b9655f4B3cC4259BCC731c63ff55ae6",
-            coins=[
+            lp_token_address="0x7Eb40E450b9655f4B3cC4259BCC731c63ff55ae6",
+            coin_addresses=[
                 "0x1456688345527bE1f37E9e627DA0837D6f08C925",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -445,18 +444,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x1456688345527bE1f37E9e627DA0837D6f08C925",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0x890f4e345B1dAED0367A877a1612f86A1f86985f": CurveStableSwapPoolAttributes(
             address="0x890f4e345B1dAED0367A877a1612f86A1f86985f",
-            lp_token="0x94e131324b6054c0D789b190b2dAC504e4361b53",
-            coins=[
+            lp_token_address="0x94e131324b6054c0D789b190b2dAC504e4361b53",
+            coin_addresses=[
                 "0xa47c8bf37f92aBed4A126BDA807A7b7498661acD",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -464,18 +463,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0xa47c8bf37f92aBed4A126BDA807A7b7498661acD",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0x071c661B4DeefB59E2a3DdB20Db036821eeE8F4b": CurveStableSwapPoolAttributes(
             address="0x071c661B4DeefB59E2a3DdB20Db036821eeE8F4b",
-            lp_token="0x410e3E86ef427e30B9235497143881f717d93c2A",
-            coins=[
+            lp_token_address="0x410e3E86ef427e30B9235497143881f717d93c2A",
+            coin_addresses=[
                 "0x9BE89D2a4cd102D8Fecc6BF9dA793be995C22541",
                 "0x075b1bb99792c9E1041bA13afEf80C91a1e70fB3",
             ],
@@ -483,18 +482,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x9BE89D2a4cd102D8Fecc6BF9dA793be995C22541",
                 "0xEB4C2781e4ebA804CE9a9803C67d0893436bB27D",
                 "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
                 "0xfE18be6b3Bd88A2D2A7f928d00292E7a9963CfC6",
             ],
-            basepool="0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714",
+            base_pool_address="0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714",
         ),
         "0xd81dA8D904b52208541Bade1bD6595D8a251F8dd": CurveStableSwapPoolAttributes(
             address="0xd81dA8D904b52208541Bade1bD6595D8a251F8dd",
-            lp_token="0x2fE94ea3d5d4a175184081439753DE15AeF9d614",
-            coins=[
+            lp_token_address="0x2fE94ea3d5d4a175184081439753DE15AeF9d614",
+            coin_addresses=[
                 "0x8064d9Ae6cDf087b1bcd5BDf3531bD5d8C537a68",
                 "0x075b1bb99792c9E1041bA13afEf80C91a1e70fB3",
             ],
@@ -502,18 +501,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x8064d9Ae6cDf087b1bcd5BDf3531bD5d8C537a68",
                 "0xEB4C2781e4ebA804CE9a9803C67d0893436bB27D",
                 "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
                 "0xfE18be6b3Bd88A2D2A7f928d00292E7a9963CfC6",
             ],
-            basepool="0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714",
+            base_pool_address="0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714",
         ),
         "0x7F55DDe206dbAD629C080068923b36fe9D6bDBeF": CurveStableSwapPoolAttributes(
             address="0x7F55DDe206dbAD629C080068923b36fe9D6bDBeF",
-            lp_token="0xDE5331AC4B3630f94853Ff322B66407e0D6331E8",
-            coins=[
+            lp_token_address="0xDE5331AC4B3630f94853Ff322B66407e0D6331E8",
+            coin_addresses=[
                 "0x5228a22e72ccC52d415EcFd199F99D0665E7733b",
                 "0x075b1bb99792c9E1041bA13afEf80C91a1e70fB3",
             ],
@@ -521,18 +520,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x5228a22e72ccC52d415EcFd199F99D0665E7733b",
                 "0xEB4C2781e4ebA804CE9a9803C67d0893436bB27D",
                 "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
                 "0xfE18be6b3Bd88A2D2A7f928d00292E7a9963CfC6",
             ],
-            basepool="0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714",
+            base_pool_address="0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714",
         ),
         "0xC25099792E9349C7DD09759744ea681C7de2cb66": CurveStableSwapPoolAttributes(
             address="0xC25099792E9349C7DD09759744ea681C7de2cb66",
-            lp_token="0x64eda51d3Ad40D56b9dFc5554E06F94e1Dd786Fd",
-            coins=[
+            lp_token_address="0x64eda51d3Ad40D56b9dFc5554E06F94e1Dd786Fd",
+            coin_addresses=[
                 "0x8dAEBADE922dF735c38C80C7eBD708Af50815fAa",
                 "0x075b1bb99792c9E1041bA13afEf80C91a1e70fB3",
             ],
@@ -540,18 +539,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x8dAEBADE922dF735c38C80C7eBD708Af50815fAa",
                 "0xEB4C2781e4ebA804CE9a9803C67d0893436bB27D",
                 "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
                 "0xfE18be6b3Bd88A2D2A7f928d00292E7a9963CfC6",
             ],
-            basepool="0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714",
+            base_pool_address="0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714",
         ),
         "0xEcd5e75AFb02eFa118AF914515D6521aaBd189F1": CurveStableSwapPoolAttributes(
             address="0xEcd5e75AFb02eFa118AF914515D6521aaBd189F1",
-            lp_token="0xEcd5e75AFb02eFa118AF914515D6521aaBd189F1",
-            coins=[
+            lp_token_address="0xEcd5e75AFb02eFa118AF914515D6521aaBd189F1",
+            coin_addresses=[
                 "0x0000000000085d4780B73119b644AE5ecd22b376",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -559,18 +558,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x0000000000085d4780B73119b644AE5ecd22b376",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0xEd279fDD11cA84bEef15AF5D39BB4d4bEE23F0cA": CurveStableSwapPoolAttributes(
             address="0xEd279fDD11cA84bEef15AF5D39BB4d4bEE23F0cA",
-            lp_token="0xEd279fDD11cA84bEef15AF5D39BB4d4bEE23F0cA",
-            coins=[
+            lp_token_address="0xEd279fDD11cA84bEef15AF5D39BB4d4bEE23F0cA",
+            coin_addresses=[
                 "0x5f98805A4E8be255a32880FDeC7F6728C6568bA0",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -578,18 +577,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x5f98805A4E8be255a32880FDeC7F6728C6568bA0",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0xd632f22692FaC7611d2AA1C0D552930D43CAEd3B": CurveStableSwapPoolAttributes(
             address="0xd632f22692FaC7611d2AA1C0D552930D43CAEd3B",
-            lp_token="0xd632f22692FaC7611d2AA1C0D552930D43CAEd3B",
-            coins=[
+            lp_token_address="0xd632f22692FaC7611d2AA1C0D552930D43CAEd3B",
+            coin_addresses=[
                 "0x853d955aCEf822Db058eb8505911ED77F175b99e",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -597,18 +596,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x853d955aCEf822Db058eb8505911ED77F175b99e",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0x4807862AA8b2bF68830e4C8dc86D0e9A998e085a": CurveStableSwapPoolAttributes(
             address="0x4807862AA8b2bF68830e4C8dc86D0e9A998e085a",
-            lp_token="0x4807862AA8b2bF68830e4C8dc86D0e9A998e085a",
-            coins=[
+            lp_token_address="0x4807862AA8b2bF68830e4C8dc86D0e9A998e085a",
+            coin_addresses=[
                 "0x4Fabb145d64652a948d72533023f6E7A623C7C53",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -616,18 +615,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x4Fabb145d64652a948d72533023f6E7A623C7C53",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0xF9440930043eb3997fc70e1339dBb11F341de7A8": CurveStableSwapPoolAttributes(
             address="0xF9440930043eb3997fc70e1339dBb11F341de7A8",
-            lp_token="0x53a901d48795C58f485cBB38df08FA96a24669D5",
-            coins=[
+            lp_token_address="0x53a901d48795C58f485cBB38df08FA96a24669D5",
+            coin_addresses=[
                 "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
                 "0x9559Aaa82d9649C7A7b220E7c461d2E74c9a3593",
             ],
@@ -635,13 +634,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0x43b4FdFD4Ff969587185cDB6f0BD875c5Fc83f8c": CurveStableSwapPoolAttributes(
             address="0x43b4FdFD4Ff969587185cDB6f0BD875c5Fc83f8c",
-            lp_token="0x43b4FdFD4Ff969587185cDB6f0BD875c5Fc83f8c",
-            coins=[
+            lp_token_address="0x43b4FdFD4Ff969587185cDB6f0BD875c5Fc83f8c",
+            coin_addresses=[
                 "0xBC6DA0FE9aD5f3b0d58160288917AA56653660E9",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -649,18 +648,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0xBC6DA0FE9aD5f3b0d58160288917AA56653660E9",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5": CurveStableSwapPoolAttributes(
             address="0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5",
-            lp_token="0xcA3d75aC011BF5aD07a98d02f18225F9bD9A6BDF",
-            coins=[
+            lp_token_address="0xcA3d75aC011BF5aD07a98d02f18225F9bD9A6BDF",
+            coin_addresses=[
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
                 "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
                 "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
@@ -669,13 +668,13 @@ POOL_ATTRIBUTES: Dict[
             fee=31246833,
             admin_fee=0,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0x618788357D0EBd8A37e763ADab3bc575D54c2C7d": CurveStableSwapPoolAttributes(
             address="0x618788357D0EBd8A37e763ADab3bc575D54c2C7d",
-            lp_token="0x6BA5b4e438FA0aAf7C1bD179285aF65d13bD3D90",
-            coins=[
+            lp_token_address="0x6BA5b4e438FA0aAf7C1bD179285aF65d13bD3D90",
+            coin_addresses=[
                 "0x03ab458634910AaD20eF5f1C8ee96F1D6ac54919",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -683,18 +682,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x03ab458634910AaD20eF5f1C8ee96F1D6ac54919",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0x5a6A4D54456819380173272A5E8E9B9904BdF41B": CurveStableSwapPoolAttributes(
             address="0x5a6A4D54456819380173272A5E8E9B9904BdF41B",
-            lp_token="0x5a6A4D54456819380173272A5E8E9B9904BdF41B",
-            coins=[
+            lp_token_address="0x5a6A4D54456819380173272A5E8E9B9904BdF41B",
+            coin_addresses=[
                 "0x99D8a9C45b2ecA8864373A26D1459e3Dff1e17F3",
                 "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
             ],
@@ -702,18 +701,18 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=True,
-            underlying_coins=[
+            underlying_coin_addresses=[
                 "0x99D8a9C45b2ecA8864373A26D1459e3Dff1e17F3",
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
-            basepool="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
+            base_pool_address="0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
         ),
         "0xFD5dB7463a3aB53fD211b4af195c5BCCC1A03890": CurveStableSwapPoolAttributes(
             address="0xFD5dB7463a3aB53fD211b4af195c5BCCC1A03890",
-            lp_token="0xFD5dB7463a3aB53fD211b4af195c5BCCC1A03890",
-            coins=[
+            lp_token_address="0xFD5dB7463a3aB53fD211b4af195c5BCCC1A03890",
+            coin_addresses=[
                 "0xC581b735A1688071A1746c968e0798D642EDE491",
                 "0xD71eCFF9342A5Ced620049e616c5035F1dB98620",
             ],
@@ -721,13 +720,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0x4e0915C88bC70750D68C481540F081fEFaF22273": CurveStableSwapPoolAttributes(
             address="0x4e0915C88bC70750D68C481540F081fEFaF22273",
-            lp_token="0x4e0915C88bC70750D68C481540F081fEFaF22273",
-            coins=[
+            lp_token_address="0x4e0915C88bC70750D68C481540F081fEFaF22273",
+            coin_addresses=[
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
                 "0xa693B19d2931d498c5B318dF961919BB4aee87a5",
@@ -737,13 +736,13 @@ POOL_ATTRIBUTES: Dict[
             fee=3000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0x1005F7406f32a61BD760CfA14aCCd2737913d546": CurveStableSwapPoolAttributes(
             address="0x1005F7406f32a61BD760CfA14aCCd2737913d546",
-            lp_token="0x1005F7406f32a61BD760CfA14aCCd2737913d546",
-            coins=[
+            lp_token_address="0x1005F7406f32a61BD760CfA14aCCd2737913d546",
+            coin_addresses=[
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             ],
@@ -751,13 +750,13 @@ POOL_ATTRIBUTES: Dict[
             fee=3000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0xDcEF968d416a41Cdac0ED8702fAC8128A64241A2": CurveStableSwapPoolAttributes(
             address="0xDcEF968d416a41Cdac0ED8702fAC8128A64241A2",
-            lp_token="0x3175Df0976dFA876431C2E9eE6Bc45b65d3473CC",
-            coins=[
+            lp_token_address="0x3175Df0976dFA876431C2E9eE6Bc45b65d3473CC",
+            coin_addresses=[
                 "0x853d955aCEf822Db058eb8505911ED77F175b99e",
                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
             ],
@@ -765,13 +764,13 @@ POOL_ATTRIBUTES: Dict[
             fee=1000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0xa1F8A6807c402E4A15ef4EBa36528A3FED24E577": CurveStableSwapPoolAttributes(
             address="0xa1F8A6807c402E4A15ef4EBa36528A3FED24E577",
-            lp_token="0xf43211935C781D5ca1a41d2041F397B8A7366C7A",
-            coins=[
+            lp_token_address="0xf43211935C781D5ca1a41d2041F397B8A7366C7A",
+            coin_addresses=[
                 "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
                 "0x5E8422345238F34275888049021821E8E08CAa1f",
             ],
@@ -779,13 +778,13 @@ POOL_ATTRIBUTES: Dict[
             fee=2000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0xf253f83AcA21aAbD2A20553AE0BF7F65C755A07F": CurveStableSwapPoolAttributes(
             address="0xf253f83AcA21aAbD2A20553AE0BF7F65C755A07F",
-            lp_token="0x051d7e5609917Bd9b73f04BAc0DED8Dd46a74301",
-            coins=[
+            lp_token_address="0x051d7e5609917Bd9b73f04BAc0DED8Dd46a74301",
+            coin_addresses=[
                 "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
                 "0xfE18be6b3Bd88A2D2A7f928d00292E7a9963CfC6",
             ],
@@ -793,13 +792,13 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0xaE34574AC03A15cd58A92DC79De7B1A0800F1CE3": CurveStableSwapPoolAttributes(
             address="0xaE34574AC03A15cd58A92DC79De7B1A0800F1CE3",
-            lp_token="0xFC2838a17D8e8B1D5456E0a351B0708a09211147",
-            coins=[
+            lp_token_address="0xFC2838a17D8e8B1D5456E0a351B0708a09211147",
+            coin_addresses=[
                 "0x853d955aCEf822Db058eb8505911ED77F175b99e",
                 "0x8E870D67F660D95d5be530380D0eC0bd388289E1",
             ],
@@ -807,13 +806,13 @@ POOL_ATTRIBUTES: Dict[
             fee=1000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
         "0xBfAb6FA95E0091ed66058ad493189D2cB29385E6": CurveStableSwapPoolAttributes(
             address="0xBfAb6FA95E0091ed66058ad493189D2cB29385E6",
-            lp_token="0xBfAb6FA95E0091ed66058ad493189D2cB29385E6",
-            coins=[
+            lp_token_address="0xBfAb6FA95E0091ed66058ad493189D2cB29385E6",
+            coin_addresses=[
                 "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
                 "0xa2E3356610840701BDf5611a53974510Ae27E2e1",
             ],
@@ -821,12 +820,8 @@ POOL_ATTRIBUTES: Dict[
             fee=4000000,
             admin_fee=5000000000,
             is_metapool=False,
-            underlying_coins=None,
-            basepool=None,
+            underlying_coin_addresses=None,
+            base_pool_address=None,
         ),
     }
 }
-for chain_id in POOL_ATTRIBUTES:
-    POOL_ATTRIBUTES[chain_id] = {
-        to_checksum_address(k): v for k, v in POOL_ATTRIBUTES[chain_id].items()
-    }

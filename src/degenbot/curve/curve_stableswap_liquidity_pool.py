@@ -161,8 +161,8 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             logger.debug(f"{self.future_a_coefficient_time=}")
 
         if pool_attributes:
-            lp_token_address = pool_attributes.lp_token
-            token_addresses = pool_attributes.coins
+            lp_token_address = to_checksum_address(pool_attributes.lp_token_address)
+            token_addresses = [to_checksum_address(coin) for coin in pool_attributes.coin_addresses]
             self._coin_index_type = pool_attributes.coin_index_type
         else:
             # Identify the coins input format (int128 or uint256)
@@ -260,7 +260,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         if pool_attributes:
             self.is_metapool = pool_attributes.is_metapool
             if self.is_metapool is True:
-                base_pool_address = pool_attributes.basepool
+                base_pool_address = to_checksum_address(pool_attributes.base_pool_address)
         else:
             self.is_metapool = False
             for contract in [_w3_factory_contract, _w3_registry_contract]:
