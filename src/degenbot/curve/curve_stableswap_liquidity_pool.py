@@ -7,6 +7,7 @@
 # medium        investigate differences in get_dy_underlying vs exchange_underlying at GUSD-3Crv
 # low           replace eth_calls wherever possible
 
+from functools import lru_cache
 from threading import Lock
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
 
@@ -493,11 +494,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         return scaled_A
 
-    def _get_scaled_redemption_price(self, block_identifier: Optional[int] = None):
+    @lru_cache()
+    def _get_scaled_redemption_price(self, block_identifier: int):
         _w3 = config.get_web3()
-
-        if block_identifier is None:
-            block_identifier = _w3.eth.block_number
 
         REDEMPTION_PRICE_SCALE = 10**9
 
@@ -561,9 +560,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 for token in self.tokens
             ]
             admin_balances = [
-                self._w3_contract.functions.admin_balances(token_index).call(
-                    block_identifier=block_identifier
-                )
+                self._get_admin_balance(token_index=token_index, block_identifier=block_identifier)
                 for token_index, _ in enumerate(self.tokens)
             ]
             balances = [
@@ -781,14 +778,14 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 self.tokens[ETH_COIN_INDEX].get_balance(
                     address=self.address, block_identifier=block_identifier
                 )
-                - self._w3_contract.functions.admin_balances(ETH_COIN_INDEX).call(
-                    block_identifier=block_identifier
+                - self._get_admin_balance(
+                    token_index=ETH_COIN_INDEX, block_identifier=block_identifier
                 ),
                 self.tokens[DERIVATIVE_ETH_COIN_INDEX].get_balance(
                     address=self.address, block_identifier=block_identifier
                 )
-                - self._w3_contract.functions.admin_balances(DERIVATIVE_ETH_COIN_INDEX).call(
-                    block_identifier=block_identifier
+                - self._get_admin_balance(
+                    token_index=DERIVATIVE_ETH_COIN_INDEX, block_identifier=block_identifier
                 ),
             ]
             rates = self._stored_rates_from_oracle(block_identifier=block_identifier)
@@ -866,9 +863,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 for token in self.tokens
             ]
             admin_balances = [
-                self._w3_contract.functions.admin_balances(token_index).call(
-                    block_identifier=block_identifier
-                )
+                self._get_admin_balance(token_index=token_index, block_identifier=block_identifier)
                 for token_index, _ in enumerate(self.tokens)
             ]
             balances = [
@@ -898,9 +893,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 for token in self.tokens
             ]
             admin_balances = [
-                self._w3_contract.functions.admin_balances(token_index).call(
-                    block_identifier=block_identifier
-                )
+                self._get_admin_balance(token_index=token_index, block_identifier=block_identifier)
                 for token_index, _ in enumerate(self.tokens)
             ]
             balances = [
@@ -936,10 +929,8 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - fee) * self.PRECISION // rates[j]
 
-    def _get_virtual_price(self, block_identifier: Optional[int] = None):
-        if block_identifier is None:
-            block_identifier = config.get_web3().eth.block_number
-
+    @lru_cache()
+    def _get_virtual_price(self, block_identifier: int):
         vp_rate, *_ = (
             self.base_pool._w3_contract.functions.get_virtual_price().call(
                 block_identifier=block_identifier
@@ -1064,6 +1055,12 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         else:
             raise Exception("withdrawal method not implemented")
 
+    @lru_cache()
+    def _get_admin_balance(self, token_index: int, block_identifier: int):
+        return self._w3_contract.functions.admin_balances(token_index).call(
+            block_identifier=block_identifier
+        )
+
     def _get_dy_underlying(
         self, i: int, j: int, dx: int, block_identifier: Optional[int] = None
     ) -> int:
@@ -1095,7 +1092,11 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
             x = 0
             if base_i < 0:
-                x = xp[i] + (dx * self._get_scaled_redemption_price() // self.PRECISION)
+                x = xp[i] + (
+                    dx
+                    * self._get_scaled_redemption_price(block_identifier=block_identifier)
+                    // self.PRECISION
+                )
             else:
                 if base_j < 0:
                     # i is from BasePool
@@ -1143,10 +1144,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             BASE_N_COINS = len(self.base_pool.tokens)
             MAX_COIN = len(self.tokens) - 1
 
-            rates = [
-                self.PRECISION,  # <----- self.rate_multiplier?
-                self._get_virtual_price(),
-            ]
+            rates = [self.PRECISION, self._get_virtual_price(block_identifier=block_identifier)]
             xp = self._xp(rates=rates, balances=self.balances)
 
             x = 0
@@ -1747,10 +1745,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         raise Exception("_newton_y() did not converge")
 
-    def _stored_rates_from_ctokens(self, block_identifier: Optional[int] = None):
+    @lru_cache()
+    def _stored_rates_from_ctokens(self, block_identifier: int):
         _w3 = config.get_web3()
-        if block_identifier is None:
-            block_identifier = _w3.eth.block_number
 
         result = []
         for token, use_lending, multiplier in zip(
@@ -1797,10 +1794,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             result.append(multiplier * rate)
         return result
 
-    def _stored_rates_from_ytokens(self, block_identifier: Optional[int] = None):
+    @lru_cache()
+    def _stored_rates_from_ytokens(self, block_identifier: int):
         _w3 = config.get_web3()
-        if block_identifier is None:
-            block_identifier = _w3.eth.block_number
 
         # ref: https://etherscan.io/address/0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27#code
 
@@ -1828,10 +1824,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         return result
 
-    def _stored_rates_from_cytokens(self, block_identifier: Optional[int] = None):
+    @lru_cache()
+    def _stored_rates_from_cytokens(self, block_identifier: int):
         _w3 = config.get_web3()
-        if block_identifier is None:
-            block_identifier = _w3.eth.block_number
 
         result = []
         for token, precision_multiplier in zip(self.tokens, self.precision_multipliers):
@@ -1873,10 +1868,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         return result
 
-    def _stored_rates_from_reth(self, block_identifier: Optional[int] = None):
+    @lru_cache()
+    def _stored_rates_from_reth(self, block_identifier: int):
         _w3 = config.get_web3()
-        if block_identifier is None:
-            block_identifier = _w3.eth.block_number
 
         # ref: https://etherscan.io/address/0xF9440930043eb3997fc70e1339dBb11F341de7A8#code
         ratio, *_ = eth_abi.decode(
@@ -1891,10 +1885,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         )
         return [self.PRECISION, ratio]
 
-    def _stored_rates_from_aeth(self, block_identifier: Optional[int] = None):
+    @lru_cache()
+    def _stored_rates_from_aeth(self, block_identifier: int):
         _w3 = config.get_web3()
-        if block_identifier is None:
-            block_identifier = _w3.eth.block_number
 
         # ref: https://etherscan.io/address/0xA96A65c051bF88B4095Ee1f2451C2A9d43F53Ae2#code
         ratio, *_ = eth_abi.decode(
@@ -1912,10 +1905,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             self.PRECISION * self.LENDING_PRECISION // ratio,
         ]
 
-    def _stored_rates_from_oracle(self, block_identifier: Optional[int] = None):
+    @lru_cache()
+    def _stored_rates_from_oracle(self, block_identifier: int):
         _w3 = config.get_web3()
-        if block_identifier is None:
-            block_identifier = _w3.eth.block_number
 
         # ref: https://etherscan.io/address/0x59Ab5a5b5d617E478a2479B0cAD80DA7e2831492#code
         ORACLE_BIT_MASK = (2**32 - 1) * 256**28
