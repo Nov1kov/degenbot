@@ -1417,6 +1417,25 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                     if Dprev - D <= 1:
                         return D
 
+        elif self.address in ("0xEB16Ae0052ed37f479f7fe63849198Df1765a733",):
+            for _ in range(255):
+                D_P = D
+                for _x in _xp:
+                    D_P = D_P * D // (_x * N_COINS + 1)  # +1 is to prevent /0
+                Dprev = D
+                D = (
+                    (Ann * S // self.A_PRECISION + D_P * N_COINS)
+                    * D
+                    // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
+                )
+                # Equality with the precision of 1
+                if D > Dprev:
+                    if D - Dprev <= 1:
+                        return D
+                else:
+                    if Dprev - D <= 1:
+                        return D
+
         else:
             for _ in range(255):
                 D_P = D
