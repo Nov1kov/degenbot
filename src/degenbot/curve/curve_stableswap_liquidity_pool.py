@@ -967,7 +967,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         xp = self._xp(rates=self.rate_multipliers, balances=_balances)
         D1: int = self._get_D(xp, amp)
-        token_amount: int = self.lp_token.get_total_supply(block=block_identifier)
+        token_amount: int = self.lp_token.get_total_supply(block_identifier=block_identifier)
 
         if deposit:
             diff = D1 - D0
@@ -995,7 +995,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             xp = self._xp(rates=self.rate_multipliers, balances=self.balances)
             D0 = self._get_D(xp, amp)
 
-            total_supply = self.lp_token.get_total_supply(block=block_identifier)
+            total_supply = self.lp_token.get_total_supply(block_identifier=block_identifier)
             D1 = D0 - _token_amount * D0 // total_supply
             new_y = self._get_y_D(amp, i, xp, D1)
             xp_reduced = xp.copy()
@@ -1029,7 +1029,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             _fee = self.fee * N_COINS // (4 * (N_COINS - 1))
             precisions = self.precision_multipliers
 
-            total_supply = self.lp_token.get_total_supply(block=block_identifier)
+            total_supply = self.lp_token.get_total_supply(block_identifier=block_identifier)
 
             xp = self._xp(rates=self.rate_multipliers, balances=self.balances)
 

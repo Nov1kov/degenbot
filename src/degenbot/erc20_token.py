@@ -1,9 +1,10 @@
+from functools import lru_cache
 from typing import Any, Dict, Optional, Tuple, Union
 from warnings import warn
 
 import eth_abi
 import ujson
-from eth_typing import ChecksumAddress
+from eth_typing import AnyAddress, ChecksumAddress
 from eth_utils.address import to_checksum_address
 from web3 import Web3
 from web3.contract import Contract
@@ -250,6 +251,9 @@ class Erc20Token(TokenHelper):
         else:
             return NotImplemented
 
+    def __hash__(self):
+        return hash(self.address)
+
     def __str__(self):
         return self.symbol
 
@@ -260,11 +264,42 @@ class Erc20Token(TokenHelper):
             abi=self.abi,
         )
 
-    def get_approval(self, owner: str, spender: str) -> int:
-        return self._w3_contract.functions.allowance(
+    def get_approval(
+        self,
+        owner: AnyAddress,
+        spender: AnyAddress,
+        block_identifier: Optional[BlockIdentifier] = None,
+    ) -> int:
+        """
+        Retrieve the amount that can be spent by `spender` on behalf of `owner`.
+        """
+
+        @lru_cache()
+        def _get_approval_cachable(
+            owner: ChecksumAddress, spender: ChecksumAddress, block_identifier: int
+        ) -> int:
+            approval, *_ = eth_abi.decode(
+                types=["uint256"],
+                data=_w3.eth.call(
+                    transaction={
+                        "to": self.address,
+                        "data": Web3.keccak(text="allowance(address,address)")[:4]
+                        + eth_abi.encode(types=["address"], args=[owner, spender]),
+                    },
+                    block_identifier=block_identifier,
+                ),
+            )
+            return approval
+
+        _w3 = config.get_web3()
+        if block_identifier is None:
+            block_identifier = _w3.eth.block_number
+
+        return _get_approval_cachable(
             to_checksum_address(owner),
             to_checksum_address(spender),
-        ).call()
+            block_identifier=block_identifier,
+        )
 
     # def set_approval(self, owner: str, spender: str, value: Union[int, str]):
     #     """
@@ -304,20 +339,57 @@ class Erc20Token(TokenHelper):
     #         print(f"Exception in token_approve: {e}")
     #         raise
 
-    def get_balance(self, address: str, block_identifier: Optional[BlockIdentifier] = None) -> int:
-        return self._w3_contract.functions.balanceOf(to_checksum_address(address)).call(
-            block_identifier=block_identifier
+    def get_balance(
+        self, address: AnyAddress, block_identifier: Optional[BlockIdentifier] = None
+    ) -> int:
+        """
+        Retrieve the ERC-20 balance for the given address.
+        """
+
+        @lru_cache()
+        def _get_balance_cachable(address: ChecksumAddress, block_identifier: int):
+            balance, *_ = eth_abi.decode(
+                types=["uint256"],
+                data=_w3.eth.call(
+                    transaction={
+                        "to": self.address,
+                        "data": Web3.keccak(text="balanceOf(address)")[:4]
+                        + eth_abi.encode(types=["address"], args=[address]),
+                    },
+                    block_identifier=block_identifier,
+                ),
+            )
+            return balance
+
+        _w3 = config.get_web3()
+        if block_identifier is None:
+            block_identifier = _w3.eth.block_number
+
+        return _get_balance_cachable(
+            address=to_checksum_address(address), block_identifier=block_identifier
         )
 
-    def get_total_supply(self, block: Optional[int] = None) -> int:
-        total_supply, *_ = eth_abi.decode(
-            types=["uint256"],
-            data=config.get_web3().eth.call(
-                transaction={"to": self.address, "data": Web3.keccak(text="totalSupply()")[:4]},
-                block_identifier=block,
-            ),
-        )
-        return total_supply
+    def get_total_supply(self, block_identifier: Optional[BlockIdentifier] = None) -> int:
+        """
+        Retrieve the total supply for this token.
+        """
+
+        @lru_cache
+        def _get_total_supply_cachable(block_identifier: int) -> int:
+            total_supply, *_ = eth_abi.decode(
+                types=["uint256"],
+                data=_w3.eth.call(
+                    transaction={"to": self.address, "data": Web3.keccak(text="totalSupply()")[:4]},
+                    block_identifier=block_identifier,
+                ),
+            )
+            return total_supply
+
+        _w3 = config.get_web3()
+        if block_identifier is None:
+            block_identifier = _w3.eth.block_number
+
+        return _get_total_supply_cachable(block_identifier=block_identifier)
 
     # def update_balance(self):
     #     self.balance = self.get_balance(self._user)
@@ -346,7 +418,17 @@ class EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE(Erc20Token):
         address: Union[ChecksumAddress, str],
         block_identifier: Optional[BlockIdentifier] = None,
     ) -> int:
-        return config.get_web3().eth.get_balance(
-            to_checksum_address(address),
+        def _get_balance_cachable(address: ChecksumAddress, block_identifier: int) -> int:
+            return config.get_web3().eth.get_balance(
+                to_checksum_address(address),
+                block_identifier=block_identifier,
+            )
+
+        _w3 = config.get_web3()
+        if block_identifier is None:
+            block_identifier = _w3.eth.block_number
+
+        return _get_balance_cachable(
+            address=to_checksum_address(address),
             block_identifier=block_identifier,
         )
