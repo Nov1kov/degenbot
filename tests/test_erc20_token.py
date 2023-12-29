@@ -2,6 +2,8 @@ from degenbot import Erc20Token, set_web3
 from eth_utils import to_checksum_address
 
 VITALIK_ADDRESS = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+WBTC_ADDRESS = "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"
 
 
 class MockErc20Token(Erc20Token):
@@ -67,3 +69,27 @@ def test_erc20token_functions(local_web3_ethereum_full):
     weth.get_approval(VITALIK_ADDRESS, weth.address)
     weth.get_balance(VITALIK_ADDRESS)
     weth.update_price()
+
+
+def test_per_instance_lru_cache(local_web3_ethereum_archive):
+    set_web3(local_web3_ethereum_archive)
+    weth = Erc20Token(address=WETH_ADDRESS)
+    wbtc = Erc20Token(address=WBTC_ADDRESS)
+
+    assert weth._get_balance_cachable.cache_info().hits == 0
+    weth.get_balance(WETH_ADDRESS)
+    assert (
+        weth._get_balance_cachable.cache_info().hits == 0
+    )  # the first request should be a cache miss
+    weth.get_balance(WETH_ADDRESS)
+    weth.get_balance(WETH_ADDRESS)
+    assert weth._get_balance_cachable.cache_info().hits == 2
+
+    assert wbtc._get_balance_cachable.cache_info().hits == 0
+    wbtc.get_balance(WBTC_ADDRESS)
+    assert (
+        wbtc._get_balance_cachable.cache_info().hits == 0
+    )  # the first request should be a cache miss
+    wbtc.get_balance(WBTC_ADDRESS)
+    wbtc.get_balance(WBTC_ADDRESS)
+    assert wbtc._get_balance_cachable.cache_info().hits == 2

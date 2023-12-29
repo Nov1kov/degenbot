@@ -397,6 +397,17 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         AllPools(chain_id)[self.address] = self
 
+        # Create per-instance LRU caches, instead of a global class cache
+        self._get_scaled_redemption_price = lru_cache()(self._get_scaled_redemption_price)
+        self._get_virtual_price = lru_cache()(self._get_virtual_price)
+        self._get_admin_balance = lru_cache()(self._get_admin_balance)
+        self._stored_rates_from_ctokens = lru_cache()(self._stored_rates_from_ctokens)
+        self._stored_rates_from_ytokens = lru_cache()(self._stored_rates_from_ytokens)
+        self._stored_rates_from_cytokens = lru_cache()(self._stored_rates_from_cytokens)
+        self._stored_rates_from_reth = lru_cache()(self._stored_rates_from_reth)
+        self._stored_rates_from_aeth = lru_cache()(self._stored_rates_from_aeth)
+        self._stored_rates_from_oracle = lru_cache()(self._stored_rates_from_oracle)
+
         if not silent:
             logger.info(
                 f"{self.name} @ {self.address}, A={self.a_coefficient}, fee={100*self.fee/self.FEE_DENOMINATOR:.2f}%"
@@ -494,7 +505,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         return scaled_A
 
-    @lru_cache()
     def _get_scaled_redemption_price(self, block_identifier: int):
         _w3 = config.get_web3()
 
@@ -929,7 +939,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - fee) * self.PRECISION // rates[j]
 
-    @lru_cache()
     def _get_virtual_price(self, block_identifier: int):
         vp_rate, *_ = (
             self.base_pool._w3_contract.functions.get_virtual_price().call(
@@ -1055,7 +1064,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         else:
             raise Exception("withdrawal method not implemented")
 
-    @lru_cache()
     def _get_admin_balance(self, token_index: int, block_identifier: int):
         return self._w3_contract.functions.admin_balances(token_index).call(
             block_identifier=block_identifier
@@ -1421,14 +1429,13 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             for _ in range(255):
                 D_P = D
                 for _x in _xp:
-                    D_P = D_P * D // (_x * N_COINS + 1)  # +1 is to prevent /0
+                    D_P = D_P * D // (_x * N_COINS + 1)
                 Dprev = D
                 D = (
                     (Ann * S // self.A_PRECISION + D_P * N_COINS)
                     * D
                     // ((Ann - self.A_PRECISION) * D // self.A_PRECISION + (N_COINS + 1) * D_P)
                 )
-                # Equality with the precision of 1
                 if D > Dprev:
                     if D - Dprev <= 1:
                         return D
@@ -1764,7 +1771,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         raise Exception("_newton_y() did not converge")
 
-    @lru_cache()
     def _stored_rates_from_ctokens(self, block_identifier: int):
         _w3 = config.get_web3()
 
@@ -1813,7 +1819,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             result.append(multiplier * rate)
         return result
 
-    @lru_cache()
     def _stored_rates_from_ytokens(self, block_identifier: int):
         _w3 = config.get_web3()
 
@@ -1843,7 +1848,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         return result
 
-    @lru_cache()
     def _stored_rates_from_cytokens(self, block_identifier: int):
         _w3 = config.get_web3()
 
@@ -1887,7 +1891,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         return result
 
-    @lru_cache()
     def _stored_rates_from_reth(self, block_identifier: int):
         _w3 = config.get_web3()
 
@@ -1904,7 +1907,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         )
         return [self.PRECISION, ratio]
 
-    @lru_cache()
     def _stored_rates_from_aeth(self, block_identifier: int):
         _w3 = config.get_web3()
 
@@ -1924,7 +1926,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             self.PRECISION * self.LENDING_PRECISION // ratio,
         ]
 
-    @lru_cache()
     def _stored_rates_from_oracle(self, block_identifier: int):
         _w3 = config.get_web3()
 
