@@ -1,5 +1,6 @@
 import dataclasses
 from typing import List, Tuple
+from eth_typing import HexAddress
 
 from ..erc20_token import Erc20Token
 
@@ -12,6 +13,15 @@ class ArbitrageCalculationResult:
     input_amount: int
     profit_amount: int
     swap_amounts: List
+
+
+@dataclasses.dataclass(slots=True, frozen=True)
+class CurveStableSwapPoolSwapAmounts:
+    token_in: Erc20Token
+    token_out: Erc20Token
+    amount_in: int
+    min_amount_out: int
+    underlying: bool
 
 
 @dataclasses.dataclass(slots=True, frozen=True)
@@ -31,3 +41,11 @@ class UniswapV3PoolSwapAmounts:
     amount_specified: int
     zero_for_one: bool
     sqrt_price_limit_x96: int
+
+
+@dataclasses.dataclass(slots=True, frozen=True)
+class CurveStableSwapPoolVector:
+    token_in: Erc20Token
+    token_out: Erc20Token
+    token_in_index: int
+    token_out_index: int

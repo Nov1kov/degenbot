@@ -23,7 +23,11 @@ from ..manager import AllPools, Erc20TokenHelperManager
 from ..subscription_mixins import Subscriber, SubscriptionMixin
 from .abi import CAMELOT_POOL_ABI, UNISWAP_V2_POOL_ABI
 from .mixins import CamelotStablePoolMixin
-from .v2_dataclasses import UniswapV2PoolSimulationResult, UniswapV2PoolState
+from .v2_dataclasses import (
+    UniswapV2PoolSimulationResult,
+    UniswapV2PoolState,
+    UniswapV2PoolExternalUpdate,
+)
 from .v2_functions import generate_v2_pool_address
 
 
@@ -57,6 +61,7 @@ class LiquidityPool(SubscriptionMixin, PoolHelper):
         "state",
         "token0",
         "token1",
+        "tokens",
         # "token0_max_swap",
         # "token1_max_swap",
         "update_block",
@@ -200,6 +205,8 @@ class LiquidityPool(SubscriptionMixin, PoolHelper):
                 address=_w3_contract.functions.token1().call(),
                 silent=silent,
             )
+
+        self.tokens = [self.token0, self.token1]
 
         if factory_address is not None and factory_init_hash is not None:
             computed_pool_address = generate_v2_pool_address(
@@ -706,6 +713,33 @@ class LiquidityPool(SubscriptionMixin, PoolHelper):
                 reserves_token0=self.reserves_token0 + token0_delta,
                 reserves_token1=self.reserves_token1 + token1_delta,
             ),
+        )
+
+    def auto_update(
+        self,
+        block_number: Optional[int] = None,
+        silent: bool = True,
+    ) -> Tuple[bool, UniswapV2PoolState]:
+        found_updates: bool = self.update_reserves(
+            silent=silent,
+            print_ratios=not silent,
+            print_reserves=not silent,
+            update_block=block_number,
+            override_update_method="polling",
+        )
+        return found_updates, self.state
+
+    def external_update(
+        self,
+        update: UniswapV2PoolExternalUpdate,
+        silent: bool = True,
+    ) -> bool:
+        return self.update_reserves(
+            silent=silent,
+            external_token0_reserves=update.reserves_token0,
+            external_token1_reserves=update.reserves_token1,
+            print_reserves=not silent,
+            print_ratios=not silent,
         )
 
     def update_reserves(

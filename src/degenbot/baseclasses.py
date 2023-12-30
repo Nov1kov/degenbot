@@ -1,4 +1,4 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from eth_typing import ChecksumAddress
 
 
@@ -12,6 +12,10 @@ class HelperManager(ABC):
     """
 
     pass
+
+
+class AbstractPoolUpdate:
+    ...
 
 
 class PoolHelper(ABC):
@@ -31,6 +35,21 @@ class PoolHelper(ABC):
 
     def __str__(self):
         return self.name
+
+    # All abstract methods below must be implemented by derived classes
+    @abstractmethod
+    def calculate_tokens_out_from_tokens_in(
+        self, token_in, token_out, token_in_quantity, override_state
+    ):
+        ...
+
+    @abstractmethod
+    def auto_update(self):
+        ...
+
+    @abstractmethod
+    def external_update(self, update):
+        ...
 
 
 class TokenHelper(ABC):
