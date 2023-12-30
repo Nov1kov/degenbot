@@ -18,7 +18,9 @@ class ArbitrageCalculationResult:
 @dataclasses.dataclass(slots=True, frozen=True)
 class CurveStableSwapPoolSwapAmounts:
     token_in: Erc20Token
+    token_in_index: int
     token_out: Erc20Token
+    token_out_index: int
     amount_in: int
     min_amount_out: int
     underlying: bool
