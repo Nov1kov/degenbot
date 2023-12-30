@@ -260,6 +260,8 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         if pool_attributes:
             self.is_metapool = pool_attributes.is_metapool
             if self.is_metapool is True:
+                if TYPE_CHECKING:
+                    assert pool_attributes.base_pool_address is not None
                 base_pool_address = to_checksum_address(pool_attributes.base_pool_address)
         else:
             self.is_metapool = False
@@ -450,7 +452,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
     def _update_pool_state(self):
         with self._state_lock:
-            self.state = CurveStableswapPoolState(pool=self, balances=self.balances)
+            self.state = CurveStableswapPoolState(pool=self.address, balances=self.balances)
         self._notify_subscribers()
 
     @property
@@ -2027,7 +2029,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         self.update_block = block_number
 
         return found_updates, CurveStableswapPoolState(
-            pool=self,
+            pool=self.address,
             balances=self.balances,
         )
 
@@ -2061,7 +2063,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             if update.block_number:
                 self.update_block = update.block_number
 
-            return True, CurveStableswapPoolState(pool=self, balances=self.balances)
+            return True, CurveStableswapPoolState(pool=self.address, balances=self.balances)
 
     def calculate_tokens_out_from_tokens_in(
         self,

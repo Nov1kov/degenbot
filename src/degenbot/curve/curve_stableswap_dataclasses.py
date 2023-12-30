@@ -1,14 +1,14 @@
 import dataclasses
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 
-from eth_typing import AnyAddress
+from eth_typing import HexAddress
 
 from ..baseclasses import AbstractPoolUpdate
 
 
 @dataclasses.dataclass(slots=True, frozen=True)
 class CurveStableswapPoolState:
-    pool: AnyAddress  # TODO: convert other states to reference address instead of object
+    pool: HexAddress  # TODO: convert other states to reference address instead of object
     balances: List[int]
 
 
@@ -33,12 +33,12 @@ class CurveStableswapPoolExternalUpdate(AbstractPoolUpdate):
 
 @dataclasses.dataclass(slots=True, frozen=True)
 class CurveStableSwapPoolAttributes:
-    address: AnyAddress
-    lp_token_address: AnyAddress
-    coin_addresses: List[AnyAddress]
-    coin_index_type: Literal["int128", "uint256"]
+    address: HexAddress
+    lp_token_address: HexAddress
+    coin_addresses: List[HexAddress]
+    coin_index_type: str
     fee: int
     admin_fee: int
     is_metapool: bool
-    underlying_coin_addresses: Optional[List[AnyAddress]] = dataclasses.field(default=None)
-    base_pool_address: Optional[AnyAddress] = dataclasses.field(default=None)
+    underlying_coin_addresses: Optional[List[HexAddress]] = dataclasses.field(default=None)
+    base_pool_address: Optional[HexAddress] = dataclasses.field(default=None)
