@@ -9,7 +9,7 @@ from ..curve.curve_stableswap_dataclasses import CurveStableSwapPoolAttributes
 
 
 POOL_ATTRIBUTES: Dict[
-    ChainId,  # Chain ID
+    int,  # Chain ID
     Dict[
         HexAddress,  # Pool address
         CurveStableSwapPoolAttributes,
