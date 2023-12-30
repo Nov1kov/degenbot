@@ -280,7 +280,7 @@ class Erc20Token(TokenHelper):
                 transaction={
                     "to": self.address,
                     "data": Web3.keccak(text="allowance(address,address)")[:4]
-                    + eth_abi.encode(types=["address"], args=[owner, spender]),
+                    + eth_abi.encode(types=["address", "address"], args=[owner, spender]),
                 },
                 block_identifier=block_identifier,
             ),
