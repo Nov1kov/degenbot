@@ -6,6 +6,7 @@
 # medium        add liquidity modifying mode for external_update
 # medium        investigate differences in get_dy_underlying vs exchange_underlying at GUSD-3Crv
 # low           replace eth_calls wherever possible
+# low           write function to extrapolate block timestamps
 
 from functools import lru_cache
 from threading import Lock
@@ -80,7 +81,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         Create a `CurveStableswapPool` object for interaction with a Curve V1
         (StableSwap) pool.
 
-
         Arguments
         ---------
         address : str
@@ -105,6 +105,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         self.address: ChecksumAddress = to_checksum_address(address)
 
         _w3 = config.get_web3()
+        if state_block is None:
+            state_block = _w3.eth.block_number
+        self.update_block = state_block
         chain_id = _w3.eth.chain_id
 
         pool_attributes: Optional[CurveStableSwapPoolAttributes] = None
@@ -119,10 +122,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             address=CURVE_V1_FACTORY_ADDRESS,
             abi=CURVE_V1_FACTORY_ABI,
         )
-
-        if state_block is None:
-            state_block = _w3.eth.get_block_number()
-        self.update_block = state_block
 
         if pool_attributes:
             self.fee = pool_attributes.fee
@@ -308,7 +307,18 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 self.base_pool = CurveStableswapPool(
                     base_pool_address, state_block=state_block, silent=silent
                 )
+
             self.tokens_underlying = [self.tokens[0]] + self.base_pool.tokens
+
+            self.base_cache_updated: Optional[int] = None
+            self.base_virtual_price: Optional[int] = None
+            try:
+                self.base_cache_updated = self._get_base_cache_updated(block_identifier=state_block)
+                self.base_virtual_price = self._get_base_virtual_price(block_identifier=state_block)
+            except web3.exceptions.ContractLogicError:
+                pass
+            else:
+                logger.debug(f"Using cached virtual price for pool {self.address}")
 
         # 3pool example
         # rate_multipliers = [
@@ -397,16 +407,18 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         AllPools(chain_id)[self.address] = self
 
-        # Create per-instance LRU caches, instead of a global class cache
+        # Create per-instance LRU caches, instead of a global cache for the class
+        self._get_admin_balance = lru_cache()(self._get_admin_balance)
+        self._get_base_cache_updated = lru_cache()(self._get_base_cache_updated)
+        self._get_base_virtual_price = lru_cache()(self._get_base_virtual_price)
         self._get_scaled_redemption_price = lru_cache()(self._get_scaled_redemption_price)
         self._get_virtual_price = lru_cache()(self._get_virtual_price)
-        self._get_admin_balance = lru_cache()(self._get_admin_balance)
-        self._stored_rates_from_ctokens = lru_cache()(self._stored_rates_from_ctokens)
-        self._stored_rates_from_ytokens = lru_cache()(self._stored_rates_from_ytokens)
-        self._stored_rates_from_cytokens = lru_cache()(self._stored_rates_from_cytokens)
-        self._stored_rates_from_reth = lru_cache()(self._stored_rates_from_reth)
         self._stored_rates_from_aeth = lru_cache()(self._stored_rates_from_aeth)
+        self._stored_rates_from_ctokens = lru_cache()(self._stored_rates_from_ctokens)
+        self._stored_rates_from_cytokens = lru_cache()(self._stored_rates_from_cytokens)
         self._stored_rates_from_oracle = lru_cache()(self._stored_rates_from_oracle)
+        self._stored_rates_from_reth = lru_cache()(self._stored_rates_from_reth)
+        self._stored_rates_from_ytokens = lru_cache()(self._stored_rates_from_ytokens)
 
         if not silent:
             logger.info(
@@ -451,8 +463,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
     def _A(
         self,
         timestamp: Optional[int] = None,
-        block_identifier: Optional[int] = None,
-        average_block_time: int = 12,
     ) -> int:
         """
         Handle ramping A up or down
@@ -468,19 +478,10 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
 
         if timestamp is None:
             _w3 = config.get_web3()
-            if block_identifier is None:
-                timestamp = _w3.eth.get_block("latest")["timestamp"]
-            else:
-                current_block = _w3.eth.block_number
-                if block_identifier <= current_block:
-                    timestamp = _w3.eth.get_block(block_identifier)["timestamp"]
-                else:
-                    timestamp = _w3.eth.get_block("latest")["timestamp"] + average_block_time * (
-                        block_identifier - current_block
-                    )
+            timestamp = _w3.eth.get_block("latest")["timestamp"]
 
-        t1 = self.future_a_coefficient_time
         A1 = self.future_a_coefficient
+        t1 = self.future_a_coefficient_time
 
         if TYPE_CHECKING:
             assert A1 is not None
@@ -506,10 +507,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         return scaled_A
 
     def _get_scaled_redemption_price(self, block_identifier: int):
-        _w3 = config.get_web3()
-
         REDEMPTION_PRICE_SCALE = 10**9
 
+        _w3 = config.get_web3()
         snap_contract_address, *_ = eth_abi.decode(
             types=["address"],
             data=_w3.eth.call(
@@ -591,10 +591,6 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 self._get_virtual_price(block_identifier=block_identifier),
             ]
             xp = self._xp(rates=rates, balances=self.balances)
-            # TODO: remove assert after verification
-            assert xp == [
-                rate * balance // self.PRECISION for rate, balance in zip(rates, self.balances)
-            ]
             x = xp[i] + (dx * rates[i] // self.PRECISION)
             y = self._get_y(i, j, x, xp)
             dy = xp[j] - y - 1
@@ -939,13 +935,54 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             fee = self.fee * dy // self.FEE_DENOMINATOR
             return (dy - fee) * self.PRECISION // rates[j]
 
-    def _get_virtual_price(self, block_identifier: int):
-        vp_rate, *_ = (
-            self.base_pool._w3_contract.functions.get_virtual_price().call(
-                block_identifier=block_identifier
+    def _get_base_cache_updated(self, block_identifier: int):
+        base_cache_updated, *_ = eth_abi.decode(
+            types=["uint256"],
+            data=config.get_web3().eth.call(
+                transaction={
+                    "to": self.address,
+                    "data": Web3.keccak(text="base_cache_updated()")[:4],
+                },
+                block_identifier=block_identifier,
             ),
         )
-        return vp_rate
+        return base_cache_updated
+
+    def _get_base_virtual_price(self, block_identifier: int):
+        base_virtual_price, *_ = eth_abi.decode(
+            types=["uint256"],
+            data=config.get_web3().eth.call(
+                transaction={
+                    "to": self.address,
+                    "data": Web3.keccak(text="base_virtual_price()")[:4],
+                },
+                block_identifier=block_identifier,
+            ),
+        )
+        return base_virtual_price
+
+    def _get_virtual_price(self, block_identifier: int):
+        BASE_CACHE_EXPIRES = 10 * 60  # 10 minutes
+
+        w3 = config.get_web3()
+        timestamp = w3.eth.get_block(block_identifier=block_identifier)["timestamp"]
+
+        if (
+            self.base_cache_updated is None
+            or timestamp > self.base_cache_updated + BASE_CACHE_EXPIRES
+        ):
+            self.base_virtual_price, *_ = eth_abi.decode(
+                types=["uint256"],
+                data=config.get_web3().eth.call(
+                    transaction={
+                        "to": self.base_pool.address,
+                        "data": Web3.keccak(text="get_virtual_price()")[:4],
+                    },
+                    block_identifier=block_identifier,
+                ),
+            )
+
+        return self.base_virtual_price
 
     def _calc_token_amount(
         self, amounts: List[int], deposit: bool, block_identifier: Optional[int] = None
@@ -1081,10 +1118,9 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             REDEMPTION_COIN = 0
 
             # dx and dy in underlying units
-            vp_rate = self._get_virtual_price(block_identifier=block_identifier)
             rates = [
                 self._get_scaled_redemption_price(block_identifier=block_identifier),
-                vp_rate,
+                vp_rate := self._get_virtual_price(block_identifier=block_identifier),
             ]
             xp: List[int] = self._xp(rates=rates, balances=self.balances)
 
@@ -1497,19 +1533,19 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             "0x45F783CCE6B7FF23B2ab2D70e416cdb7D6055f51",
             "0x4CA9b3063Ec5866A4B82E437059D2C43d1be596F",
             "0x52EA46506B9CC5Ef470C5bf89f17Dc28bB35D85C",
+            "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27",
             "0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714",
             "0x93054188d876f558f4a66B2EF1d97d16eDf0895B",
             "0xA2B47E3D5c44877cca798226B7B8118F9BFb7A56",
             "0xA5407eAE9Ba41422680e2e00537571bcC53efBfD",
             "0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7",
-            "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27",
         ):
             if self.address in (
+                "0x45F783CCE6B7FF23B2ab2D70e416cdb7D6055f51",
+                "0x52EA46506B9CC5Ef470C5bf89f17Dc28bB35D85C",
                 "0x79a8C46DeA5aDa233ABaFFD40F3A0A2B1e5A4F27",
                 "0xA2B47E3D5c44877cca798226B7B8118F9BFb7A56",
                 "0xA5407eAE9Ba41422680e2e00537571bcC53efBfD",
-                "0x52EA46506B9CC5Ef470C5bf89f17Dc28bB35D85C",
-                "0x45F783CCE6B7FF23B2ab2D70e416cdb7D6055f51",
             ):
                 amp = self._A() // self.A_PRECISION
             else:
@@ -1562,13 +1598,11 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
                 c = c * D // (_x * N_COINS)
 
             c = c * D * self.A_PRECISION // (Ann * N_COINS)
-            b = S_ + D * self.A_PRECISION // Ann  # - D
+            b = S_ + D * self.A_PRECISION // Ann
             y = D
-
             for _ in range(255):
                 y_prev = y
                 y = (y * y + c) // (2 * y + b - D)
-                # Equality with the precision of 1
                 if y > y_prev:
                     if y - y_prev <= 1:
                         return y
@@ -1983,10 +2017,14 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
             )
             token_balances.append(token_balance)
 
+        if self.is_metapool:
+            self.base_cache_updated = self._get_base_cache_updated(block_identifier=block_number)
+
         if token_balances != self.balances:
             found_updates = True
             self.balances = token_balances
-            self.update_block = block_number
+
+        self.update_block = block_number
 
         return found_updates, CurveStableswapPoolState(
             pool=self,
