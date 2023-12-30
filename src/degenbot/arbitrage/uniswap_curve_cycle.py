@@ -11,6 +11,7 @@ from eth_typing import ChecksumAddress
 from eth_utils.address import to_checksum_address
 from scipy.optimize import minimize_scalar  # type: ignore[import]
 from web3 import Web3
+from degenbot.constants import MAX_UINT256
 
 from ..baseclasses import ArbitrageHelper
 from ..curve.curve_stableswap_dataclasses import CurveStableswapPoolState
@@ -298,7 +299,7 @@ class UniswapCurveCycle(Subscriber, ArbitrageHelper):
                             override_state=pool_state_override,
                         )
                     case _:
-                        raise ValueError(f"Could not determine Uniswap version for pool {pool}")
+                        raise ValueError(f"Could not determine pool type for {pool}")
             except LiquidityPoolError as e:
                 raise ArbitrageError(f"(calculate_tokens_out_from_tokens_in): {e}")
             else:
@@ -328,7 +329,9 @@ class UniswapCurveCycle(Subscriber, ArbitrageHelper):
                     pools_amounts_out.append(
                         CurveStableSwapPoolSwapAmounts(
                             token_in=token_in,
+                            token_in_index=pool.tokens.index(token_in),
                             token_out=token_out,
+                            token_out_index=pool.tokens.index(token_out),
                             amount_in=_token_in_quantity,
                             min_amount_out=_token_out_quantity,
                             underlying=True
@@ -624,44 +627,15 @@ class UniswapCurveCycle(Subscriber, ArbitrageHelper):
         swap_amount: int,
         pool_swap_amounts: Sequence[
             Union[
+                CurveStableSwapPoolSwapAmounts,
                 UniswapV2PoolSwapAmounts,
                 UniswapV3PoolSwapAmounts,
             ]
         ],
+        infinite_approval: bool = False,
     ) -> List[Tuple[ChecksumAddress, bytes, int]]:
         """
-        Generate a list of ABI-encoded calldata for each step in the swap path.
-
-        Calldata is built using the eth_abi.encode method and the ABI for the
-        ``swap`` function at the Uniswap pool. V2 and V3 pools are supported.
-
-        Arguments
-        ---------
-        from_address: str
-            The address that will execute the calldata. Must be a smart
-            contract implementing the required callbacks specific to the pool.
-
-        swap_amount: int, optional
-            The initial amount of `token_in` to swap through the first pool.
-            If this argument is `None`, amount will be retrieved from
-            `self.best`.
-
-        pool_swap_amounts: Iterable[UniswapV2PoolSwapAmounts |
-        UniswapV3PoolSwapAmounts], optional
-            An iterable of swap amounts to be encoded. If this argument is
-            `None`, amounts will be retrieved from `self.best`.
-
-        Returns
-        -------
-        ``list[(str, bytes, int)]``
-            A list of payload tuples. Each payload tuple has form (
-            address: ChecksumAddress, calldata: bytes, value: int).
-
-        Raises
-        ------
-        ArbitrageError
-            if the generated payloads would revert on-chain, or if the inputs
-            were invalid
+        TBD
         """
 
         from_address = to_checksum_address(from_address)
@@ -719,6 +693,10 @@ class UniswapCurveCycle(Subscriber, ArbitrageHelper):
                     # V3 pools cannot accept a pre-swap transfer, so the contract
                     # must maintain custody prior to a swap
                     elif isinstance(next_pool, V3LiquidityPool):
+                        swap_destination_address = from_address
+                    # Curve V1 pools execute a transferFrom on behalf of msg.sender, so the contract
+                    # must maintain custody prior to a swap
+                    elif isinstance(next_pool, CurveStableswapPool):
                         swap_destination_address = from_address
                 else:
                     # Set the destination address for the last swap to the
@@ -782,6 +760,56 @@ class UniswapCurveCycle(Subscriber, ArbitrageHelper):
                                     _swap_amounts.sqrt_price_limit_x96,
                                     b"",
                                 ),
+                            ),
+                            msg_value,
+                        )
+                    )
+                elif isinstance(swap_pool, CurveStableswapPool):
+                    if TYPE_CHECKING:
+                        assert isinstance(_swap_amounts, CurveStableSwapPoolSwapAmounts)
+                    logger.debug(f"PAYLOAD: building Curve swap at pool {i}")
+                    logger.debug(f"PAYLOAD: pool address {swap_pool.address}")
+                    logger.debug(f"PAYLOAD: swap amounts {_swap_amounts}")
+                    logger.debug(f"PAYLOAD: destination address {swap_destination_address}")
+
+                    current_approval = _swap_amounts.token_in.get_approval(
+                        from_address, swap_pool.address
+                    )
+                    amount_to_approve: Optional[int] = None
+                    if infinite_approval is True and current_approval != MAX_UINT256:
+                        amount_to_approve = MAX_UINT256
+                    elif infinite_approval is False and current_approval < _swap_amounts.amount_in:
+                        amount_to_approve = _swap_amounts.amount_in
+
+                    if amount_to_approve is not None:
+                        payloads.append(
+                            (
+                                # address
+                                _swap_amounts.token_in.address,
+                                # bytes calldata
+                                Web3.keccak(text="approve(address,uint256)")[:4]
+                                + eth_abi.encode(
+                                    types=["address", "uint256"],
+                                    args=[swap_pool.address, amount_to_approve],
+                                ),
+                                msg_value,
+                            )
+                        )
+
+                    payloads.append(
+                        (
+                            # address
+                            swap_pool.address,
+                            # bytes calldata
+                            Web3.keccak(text="exchange(int128,int128,uint256,uint256)")[:4]
+                            + eth_abi.encode(
+                                types=["int128", "int128", "uint256", "uint256"],
+                                args=[
+                                    _swap_amounts.token_in_index,
+                                    _swap_amounts.token_out_index,
+                                    _swap_amounts.amount_in,
+                                    _swap_amounts.min_amount_out,
+                                ],
                             ),
                             msg_value,
                         )
