@@ -45,21 +45,6 @@ WBTC_CONTRACT_ADDRESS = "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"
 def wbtc_weth_liquiditypool(local_ethereum_archive_node_web3: Web3) -> LiquidityPool:
     degenbot.set_web3(local_ethereum_archive_node_web3)
 
-    # token0 = MockErc20Token()
-    # token0.address = to_checksum_address("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599")
-    # token0.decimals = 8
-    # token0.name = "Wrapped BTC"
-    # token0.symbol = "WBTC"
-
-    # token1 = MockErc20Token()
-    # token1.address = to_checksum_address("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
-    # token1.decimals = 18
-    # token1.name = "Wrapped Ether"
-    # token1.symbol = "WETH"
-
-    if UNISWAP_V2_WBTC_WETH_POOL_ADDRESS in degenbot.AllPools(chain_id=1).pools:
-        del degenbot.AllPools(chain_id=1)[UNISWAP_V2_WBTC_WETH_POOL_ADDRESS]
-
     lp = LiquidityPool(
         address=UNISWAP_V2_WBTC_WETH_POOL_ADDRESS,
         update_method="external",
@@ -70,13 +55,6 @@ def wbtc_weth_liquiditypool(local_ethereum_archive_node_web3: Web3) -> Liquidity
         # empty=True,
         state_block=17_600_000,
     )
-
-    # # Reserve values for taken at block height 17,600,000
-    # lp.update_reserves(
-    #     external_token0_reserves=16231137593,
-    #     external_token1_reserves=2571336301536722443178,
-    #     update_block=1,
-    # )
 
     return lp
 
@@ -341,11 +319,12 @@ def test_pickle_pool(wbtc_weth_liquiditypool: LiquidityPool) -> None:
     wbtc_weth_liquiditypool.__setstate__(state)
 
 
-def test_calculate_tokens_out_from_ratio_out(load_env: dict) -> None:
-    fork = AnvilFork(f"https://rpc.ankr.com/eth/{load_env['ANKR_API_KEY']}", fork_block=17_600_000)
-    degenbot.set_web3(fork.w3)
+def test_calculate_tokens_out_from_ratio_out(fork_from_archive: AnvilFork) -> None:
+    _BLOCK_NUMBER = 17_600_000
+    fork_from_archive.reset(block_number=_BLOCK_NUMBER)
+    degenbot.set_web3(fork_from_archive.w3)
 
-    router_contract = fork.w3.eth.contract(
+    router_contract = fork_from_archive.w3.eth.contract(
         address="0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
         abi=degenbot.uniswap.abi.UNISWAP_V2_ROUTER_ABI,
     )
@@ -758,9 +737,12 @@ def test_zero_swaps(wbtc_weth_liquiditypool: LiquidityPool) -> None:
         )
 
 
-def test_polling_update(wbtc_weth_liquiditypool: LiquidityPool, load_env: dict) -> None:
-    fork = AnvilFork(f"https://rpc.ankr.com/eth/{load_env['ANKR_API_KEY']}", fork_block=18_000_000)
-    degenbot.set_web3(fork.w3)
+def test_polling_update(
+    wbtc_weth_liquiditypool: LiquidityPool, fork_from_archive: AnvilFork
+) -> None:
+    _BLOCK_NUMBER = 18_000_000
+    fork_from_archive.reset(block_number=_BLOCK_NUMBER)
+    degenbot.set_web3(fork_from_archive.w3)
     wbtc_weth_liquiditypool._update_method = "polling"
     assert wbtc_weth_liquiditypool.update_reserves() is True
     assert wbtc_weth_liquiditypool.update_reserves() is False

@@ -13,6 +13,9 @@ def test_get_erc20tokens(local_ethereum_archive_node_web3: web3.Web3):
     token_manager = Erc20TokenHelperManager(chain_id=local_ethereum_archive_node_web3.eth.chain_id)
     token_registry = AllTokens(chain_id=local_ethereum_archive_node_web3.eth.chain_id)
 
+    token_registry.tokens.clear()
+    token_manager._erc20tokens.clear()
+
     weth = token_manager.get_erc20token(address=WETH_ADDRESS)
     assert weth.symbol == "WETH"
     assert weth.address == WETH_ADDRESS

@@ -5,7 +5,7 @@ import eth_abi
 import pytest
 from degenbot.curve.abi import CURVE_V1_FACTORY_ABI, CURVE_V1_REGISTRY_ABI
 from degenbot.curve.curve_stableswap_dataclasses import CurveStableswapPoolExternalUpdate
-from degenbot.curve.curve_stableswap_liquidity_pool import BrokenPool, CurveStableswapPool
+from degenbot.curve.curve_stableswap_liquidity_pool import CurvePoolBroken, CurveStableswapPool
 from degenbot.exceptions import ZeroLiquidityError, ZeroSwapError
 from degenbot.fork import AnvilFork
 from web3 import Web3
@@ -15,18 +15,6 @@ FRXETH_WETH_CURVE_POOL_ADDRESS = "0x9c3B46C0Ceb5B9e304FCd6D88Fc50f7DD24B31Bc"
 CURVE_V1_FACTORY_ADDRESS = "0x127db66E7F0b16470Bec194d0f496F9Fa065d0A9"
 CURVE_V1_REGISTRY_ADDRESS = "0x90E00ACe148ca3b23Ac1bC8C240C2a7Dd9c2d7f5"
 TRIPOOL_ADDRESS = "0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7"
-
-ARCHIVE_NODE_URL = "http://localhost:8545"
-
-
-@pytest.fixture(scope="function")
-def fork_from_archive() -> AnvilFork:
-    fork = AnvilFork(fork_url=ARCHIVE_NODE_URL)
-    yield fork
-
-    # Clear the AllPools dictionary after the fixture is torn down,
-    # since the module is stateful and sequential tests will affect each other
-    degenbot.AllPools(fork.w3.eth.chain_id).pools.clear()
 
 
 @pytest.fixture()
@@ -414,7 +402,7 @@ def test_factory_stableswap_pools(fork_from_archive: AnvilFork):
         try:
             lp = CurveStableswapPool(address=pool_address, silent=True)
             _test_calculations(lp)
-        except (BrokenPool, ZeroLiquidityError):
+        except (CurvePoolBroken, ZeroLiquidityError):
             continue
         except Exception as e:
             print(f"{type(e)}: {e} - {pool_address=}")

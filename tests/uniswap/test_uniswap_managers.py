@@ -201,15 +201,10 @@ def test_pools_from_token_path(local_ethereum_archive_node_web3: Web3) -> None:
     ]
 
 
-def test_same_block(load_env: dict):
-    ANKR_API_KEY = load_env["ANKR_API_KEY"]
-
+def test_same_block(fork_from_archive: AnvilFork):
     _BLOCK = 18493777
-    fork = AnvilFork(
-        fork_url=f"https://rpc.ankr.com/eth/{ANKR_API_KEY}",
-        fork_block=_BLOCK,
-    )
-    set_web3(fork.w3)
+    fork_from_archive.reset(block_number=_BLOCK)
+    set_web3(fork_from_archive.w3)
 
     uniswap_v2_pool_manager = UniswapV2LiquidityPoolManager(
         factory_address=UNISWAP_V2_FACTORY_ADDRESS
@@ -229,4 +224,3 @@ def test_same_block(load_env: dict):
     )
 
     assert v2_heyjoe_weth_lp is not new_v2_heyjoe_weth_lp
-    del fork

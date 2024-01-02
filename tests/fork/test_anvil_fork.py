@@ -18,30 +18,26 @@ def test_anvil_forks(load_env):
     AnvilFork(fork_url=ANKR_URL, base_fee=10 * 10**9)
 
 
-def test_rpc_methods(load_env):
-    ANKR_URL = f"https://rpc.ankr.com/eth/{load_env['ANKR_API_KEY']}"
-
-    fork = AnvilFork(fork_url=ANKR_URL)
-
-    fork.set_next_base_fee(11 * 10**9)
+def test_rpc_methods(fork_from_archive: AnvilFork):
+    fork_from_archive.set_next_base_fee(11 * 10**9)
     with pytest.raises(Exception, match="Error setting next block base fee!"):
-        fork.set_next_base_fee(-1)
+        fork_from_archive.set_next_base_fee(-1)
 
     # Set several snapshot IDs and return to them
     snapshot_ids = []
     for _ in range(10):
-        snapshot_ids.append(fork.set_snapshot())
+        snapshot_ids.append(fork_from_archive.set_snapshot())
     for id in snapshot_ids:
-        assert fork.return_to_snapshot(id) is True
+        assert fork_from_archive.return_to_snapshot(id) is True
     # No snapshot ID with this value
-    assert fork.return_to_snapshot(100) is False
+    assert fork_from_archive.return_to_snapshot(100) is False
 
     # Negative IDs are not allowed
     with pytest.raises(Exception, match="Error reverting to previous snapshot!"):
-        fork.return_to_snapshot(-1)
+        fork_from_archive.return_to_snapshot(-1)
 
     # Generate a 1 wei WETH deposit transaction from Vitalik.eth
-    weth_contract = fork.w3.eth.contract(
+    weth_contract = fork_from_archive.w3.eth.contract(
         address=WETH_ADDRESS,
         abi=ujson.loads(
             """
@@ -55,11 +51,11 @@ def test_rpc_methods(load_env):
             "value": 1,
         },
     )
-    access_list = fork.create_access_list(transaction=deposit_transaction)
+    access_list = fork_from_archive.create_access_list(transaction=deposit_transaction)
     assert isinstance(access_list, list)
 
-    fork.reset(fork_url=ANKR_URL, block_number=18_500_000)
+    fork_from_archive.reset(block_number=18_500_000)
     with pytest.raises(Exception):
-        fork.reset(
+        fork_from_archive.reset(
             fork_url="http://google.com",  # <--- Bad RPC URI
         )

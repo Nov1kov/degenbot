@@ -3,6 +3,10 @@
 import pytest
 import dotenv
 import web3
+import degenbot
+
+ARCHIVE_NODE_HTTP_URI = "http://localhost:8545"
+ARCHIVE_NODE_WS_URI = "ws://localhost:8546"
 
 
 @pytest.fixture(scope="session")
@@ -11,28 +15,26 @@ def load_env() -> dict:
     return dotenv.dotenv_values(env_file)
 
 
-# Set up a web3 connection to Ankr endpoint
-@pytest.fixture(scope="session")
-def ankr_archive_web3(load_env) -> web3.Web3:
-    try:
-        ANKR_URL = f"https://rpc.ankr.com/eth/{load_env['ANKR_API_KEY']}"
-    except KeyError:
-        ANKR_URL = "https://rpc.ankr.com/eth/"
-
-    w3 = web3.Web3(web3.HTTPProvider(ANKR_URL))
-    return w3
-
-
 # Set up a web3 connection to local archive node
 @pytest.fixture(scope="session")
 def local_ethereum_archive_node_web3() -> web3.Web3:
-    w3 = web3.Web3(web3.HTTPProvider("http://localhost:8545"))
+    w3 = web3.Web3(web3.WebsocketProvider(ARCHIVE_NODE_WS_URI))
     return w3
 
 
-# Provide a default Web3 object for degenbot
-@pytest.fixture(scope="session", autouse=True)
-def setup_degenbot_web3(local_ethereum_archive_node_web3: web3.Web3) -> None:
-    import degenbot
+@pytest.fixture(scope="function", autouse=True)
+def clear_degenbot_state() -> None:
+    # Clear shared state dictionaries prior to each new test (activated on every test by autouse=True).
+    # These dictionaries store module-level state, which will corrupt sequential tests if not reclearedset
+    print("Resetting shared degenbot state")
 
-    degenbot.set_web3(local_ethereum_archive_node_web3)
+    degenbot.registry.all_pools._all_pools.clear()
+    degenbot.registry.all_tokens._all_tokens.clear()
+    degenbot.UniswapV2LiquidityPoolManager._state.clear()
+    degenbot.UniswapV3LiquidityPoolManager._state.clear()
+
+
+@pytest.fixture(scope="function")
+def fork_from_archive() -> degenbot.AnvilFork:
+    fork = degenbot.AnvilFork(fork_url=ARCHIVE_NODE_HTTP_URI)
+    yield fork
