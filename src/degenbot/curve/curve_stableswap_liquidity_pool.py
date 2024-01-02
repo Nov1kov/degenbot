@@ -5,7 +5,6 @@
 # high          create a manager for Curve pools
 # medium        add liquidity modifying mode for external_update
 # medium        investigate differences in get_dy_underlying vs exchange_underlying at GUSD-3Crv
-# low           replace eth_calls wherever possible
 # low           write function to extrapolate block timestamps
 
 from functools import lru_cache
@@ -57,7 +56,7 @@ BROKEN_POOLS = (
 )
 
 
-class BrokenPool(LiquidityPoolError):
+class CurvePoolBroken(LiquidityPoolError):
     ...
 
 
@@ -97,7 +96,7 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         """
 
         if address.lower() in [pool.lower() for pool in BROKEN_POOLS]:
-            raise BrokenPool
+            raise CurvePoolBroken
 
         self._state_lock = Lock()
 
