@@ -446,6 +446,36 @@ class CurveStableswapPool(SubscriptionMixin, PoolHelper):
         #     ),
         # )
 
+    def __getstate__(self) -> dict:
+        # Remove objects that cannot be pickled and are unnecessary to perform
+        # the calculation
+        dropped_attributes = (
+            "_state_lock",
+            "_subscribers",
+            "_get_admin_balance",
+            "_get_base_cache_updated",
+            "_get_base_virtual_price",
+            "_get_scaled_redemption_price",
+            "_get_virtual_price",
+            "_stored_rates_from_aeth",
+            "_stored_rates_from_ctokens",
+            "_stored_rates_from_cytokens",
+            "_stored_rates_from_oracle",
+            "_stored_rates_from_reth",
+            "_stored_rates_from_ytokens",
+        )
+
+        with self._state_lock:
+            return {
+                attr_name: getattr(self, attr_name, None)
+                for attr_name in self.__dict__
+                if attr_name not in dropped_attributes
+            }
+
+    def __setstate__(self, state: dict):
+        for attr_name, attr_value in state.items():
+            setattr(self, attr_name, attr_value)
+
     def __repr__(self):  # pragma: no cover
         token_string = "-".join([token.symbol for token in self.tokens])
         return f"CurveStableswapPool(address={self.address}, tokens={token_string}, fee={100*self.fee/self.FEE_DENOMINATOR:.2f}%, A={self.a_coefficient})"

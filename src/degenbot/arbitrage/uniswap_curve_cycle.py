@@ -246,6 +246,7 @@ class UniswapCurveCycle(Subscriber, ArbitrageHelper):
         for i, (pool, swap_vector) in enumerate(zip(self.swap_pools, self._swap_vectors)):
             match pool:
                 case LiquidityPool() | V3LiquidityPool():
+                    assert isinstance(swap_vector, UniswapPoolSwapVector)
                     token_in = swap_vector.token_in
                     token_out = swap_vector.token_out
                     zero_for_one = swap_vector.zero_for_one

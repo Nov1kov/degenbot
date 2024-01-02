@@ -1,10 +1,9 @@
 import pytest
+import pickle
 from degenbot.arbitrage.uniswap_curve_cycle import UniswapCurveCycle
 from degenbot.curve.curve_stableswap_liquidity_pool import CurveStableswapPool
 from degenbot.erc20_token import Erc20Token
-from degenbot.exceptions import ArbitrageError
 from degenbot.uniswap.v2_liquidity_pool import LiquidityPool
-from degenbot.uniswap.v3_liquidity_pool import V3LiquidityPool
 
 WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
 DAI_ADDRESS = "0x6B175474E89094C44Da98b954EedeAC495271d0F"
@@ -29,6 +28,21 @@ def test_create_arb():
         id="test",
         max_input=10 * 10**18,
     )
+
+
+def test_pickle_arb():
+    uniswap_v2_weth_dai_lp = LiquidityPool(UNISWAP_V2_WETH_DAI_ADDRESS)
+    curve_tripool = CurveStableswapPool(CURVE_TRIPOOL_ADDRESS)
+    uniswap_v2_weth_usdc_lp = LiquidityPool(UNISWAP_V2_WETH_USDC_ADDRESS)
+
+    weth = Erc20Token(WETH_ADDRESS)
+    arb = UniswapCurveCycle(
+        input_token=weth,
+        swap_pools=[uniswap_v2_weth_dai_lp, curve_tripool, uniswap_v2_weth_usdc_lp],
+        id="test",
+        max_input=10 * 10**18,
+    )
+    pickle.dumps(arb)
 
 
 def test_arb_calculation():
@@ -67,11 +81,11 @@ def test_arb_payload_encoding():
 
     for swap_pools in [
         (uniswap_v2_weth_dai_lp, curve_tripool, uniswap_v2_weth_usdc_lp),
-        # (uniswap_v2_weth_dai_lp, curve_tripool, uniswap_v2_weth_usdt_lp),
-        # (uniswap_v2_weth_usdc_lp, curve_tripool, uniswap_v2_weth_dai_lp),
-        # (uniswap_v2_weth_usdc_lp, curve_tripool, uniswap_v2_weth_usdt_lp),
-        # (uniswap_v2_weth_usdt_lp, curve_tripool, uniswap_v2_weth_dai_lp),
-        # (uniswap_v2_weth_usdt_lp, curve_tripool, uniswap_v2_weth_usdc_lp),
+        (uniswap_v2_weth_dai_lp, curve_tripool, uniswap_v2_weth_usdt_lp),
+        (uniswap_v2_weth_usdc_lp, curve_tripool, uniswap_v2_weth_dai_lp),
+        (uniswap_v2_weth_usdc_lp, curve_tripool, uniswap_v2_weth_usdt_lp),
+        (uniswap_v2_weth_usdt_lp, curve_tripool, uniswap_v2_weth_dai_lp),
+        (uniswap_v2_weth_usdt_lp, curve_tripool, uniswap_v2_weth_usdc_lp),
     ]:
         arb = UniswapCurveCycle(
             input_token=weth,
