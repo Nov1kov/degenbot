@@ -24,8 +24,6 @@ def fork_from_archive() -> AnvilFork:
     fork = AnvilFork(fork_url=ARCHIVE_NODE_URL)
     yield fork
 
-    print("Cleaning up fork_from_archive")
-
     # Clear the AllPools dictionary after the fixture is torn down,
     # since the module is stateful and sequential tests will affect each other
     degenbot.AllPools(fork.w3.eth.chain_id).pools.clear()
