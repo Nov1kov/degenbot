@@ -42,8 +42,8 @@ WBTC_CONTRACT_ADDRESS = "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"
 
 
 @pytest.fixture(scope="function")
-def wbtc_weth_liquiditypool(local_web3_ethereum_archive: Web3) -> LiquidityPool:
-    degenbot.set_web3(local_web3_ethereum_archive)
+def wbtc_weth_liquiditypool(local_ethereum_archive_node_web3: Web3) -> LiquidityPool:
+    degenbot.set_web3(local_ethereum_archive_node_web3)
 
     # token0 = MockErc20Token()
     # token0.address = to_checksum_address("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599")
@@ -81,8 +81,8 @@ def wbtc_weth_liquiditypool(local_web3_ethereum_archive: Web3) -> LiquidityPool:
     return lp
 
 
-def test_create_pool(local_web3_ethereum_archive: Web3) -> None:
-    degenbot.set_web3(local_web3_ethereum_archive)
+def test_create_pool(local_ethereum_archive_node_web3: Web3) -> None:
+    degenbot.set_web3(local_ethereum_archive_node_web3)
 
     token0 = MockErc20Token()
     token0.address = to_checksum_address("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599")
@@ -217,11 +217,11 @@ def test_pickle_camelot_v2_pool(load_env: dict) -> None:
 
 
 def test_create_empty_pool(
-    wbtc_weth_liquiditypool: LiquidityPool, local_web3_ethereum_archive: Web3
+    wbtc_weth_liquiditypool: LiquidityPool, local_ethereum_archive_node_web3: Web3
 ) -> None:
     _pool: LiquidityPool = wbtc_weth_liquiditypool
 
-    degenbot.set_web3(local_web3_ethereum_archive)
+    degenbot.set_web3(local_ethereum_archive_node_web3)
 
     LiquidityPool(
         address=UNISWAP_V2_WBTC_WETH_POOL_ADDRESS,

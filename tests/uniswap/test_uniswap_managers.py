@@ -22,8 +22,8 @@ UNISWAPV2_WETH_WBTC_ADDRESS = to_checksum_address("0xBb2b8038a1640196FbE3e38816F
 UNISWAPV3_WETH_WBTC_ADDRESS = to_checksum_address("0xCBCdF9626bC03E24f779434178A73a0B4bad62eD")
 
 
-def test_create_managers(local_web3_ethereum_archive: Web3):
-    set_web3(local_web3_ethereum_archive)
+def test_create_managers(local_ethereum_archive_node_web3: Web3):
+    set_web3(local_ethereum_archive_node_web3)
 
     uniswap_v2_pool_manager = UniswapV2LiquidityPoolManager(
         factory_address=UNISWAP_V2_FACTORY_ADDRESS
@@ -136,8 +136,8 @@ def test_create_managers(local_web3_ethereum_archive: Web3):
     assert uniswap_v2_lp.address not in uniswap_v2_pool_manager._untracked_pools
 
 
-def test_pool_remove_and_recreate(local_web3_ethereum_archive: Web3):
-    set_web3(local_web3_ethereum_archive)
+def test_pool_remove_and_recreate(local_ethereum_archive_node_web3: Web3):
+    set_web3(local_ethereum_archive_node_web3)
 
     uniswap_v2_pool_manager = UniswapV2LiquidityPoolManager(
         factory_address=UNISWAP_V2_FACTORY_ADDRESS
@@ -186,8 +186,8 @@ def test_pool_remove_and_recreate(local_web3_ethereum_archive: Web3):
     del AllPools(chain_id=1)[super_new_v2_weth_wbtc_lp.address]
 
 
-def test_pools_from_token_path(local_web3_ethereum_archive: Web3) -> None:
-    set_web3(local_web3_ethereum_archive)
+def test_pools_from_token_path(local_ethereum_archive_node_web3: Web3) -> None:
+    set_web3(local_ethereum_archive_node_web3)
 
     uniswap_v2_pool_manager = UniswapV2LiquidityPoolManager(
         factory_address=UNISWAP_V2_FACTORY_ADDRESS
