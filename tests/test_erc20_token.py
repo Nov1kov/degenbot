@@ -35,8 +35,8 @@ def test_erc20token_comparisons():
     assert token1 < to_checksum_address("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
 
 
-def test_non_compliant_tokens(local_web3_ethereum_archive):
-    set_web3(local_web3_ethereum_archive)
+def test_non_compliant_tokens(local_ethereum_archive_node_web3):
+    set_web3(local_ethereum_archive_node_web3)
     for token_address in [
         "0x043942281890d4876D26BD98E2BB3F662635DFfb",
         "0x1da4858ad385cc377165A298CC2CE3fce0C5fD31",
@@ -52,16 +52,16 @@ def test_non_compliant_tokens(local_web3_ethereum_archive):
         Erc20Token(token_address)
 
 
-def test_erc20token_with_price_feed(local_web3_ethereum_archive):
-    set_web3(local_web3_ethereum_archive)
+def test_erc20token_with_price_feed(local_ethereum_archive_node_web3):
+    set_web3(local_ethereum_archive_node_web3)
     Erc20Token(
         address="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
         oracle_address="0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419",
     )
 
 
-def test_erc20token_functions(local_web3_ethereum_archive):
-    set_web3(local_web3_ethereum_archive)
+def test_erc20token_functions(local_ethereum_archive_node_web3):
+    set_web3(local_ethereum_archive_node_web3)
     weth = Erc20Token(
         address="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
         oracle_address="0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419",
@@ -71,8 +71,8 @@ def test_erc20token_functions(local_web3_ethereum_archive):
     weth.update_price()
 
 
-def test_per_instance_lru_cache(local_web3_ethereum_archive):
-    set_web3(local_web3_ethereum_archive)
+def test_per_instance_lru_cache(local_ethereum_archive_node_web3):
+    set_web3(local_ethereum_archive_node_web3)
     weth = Erc20Token(address=WETH_ADDRESS)
     wbtc = Erc20Token(address=WBTC_ADDRESS)
 
