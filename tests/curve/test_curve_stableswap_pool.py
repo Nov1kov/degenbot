@@ -10,17 +10,25 @@ from degenbot.exceptions import ZeroLiquidityError, ZeroSwapError
 from degenbot.fork import AnvilFork
 from web3 import Web3
 from web3.contract import Contract
-from typing import Optional
 
 FRXETH_WETH_CURVE_POOL_ADDRESS = "0x9c3B46C0Ceb5B9e304FCd6D88Fc50f7DD24B31Bc"
 CURVE_V1_FACTORY_ADDRESS = "0x127db66E7F0b16470Bec194d0f496F9Fa065d0A9"
 CURVE_V1_REGISTRY_ADDRESS = "0x90E00ACe148ca3b23Ac1bC8C240C2a7Dd9c2d7f5"
 TRIPOOL_ADDRESS = "0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7"
 
+ARCHIVE_NODE_URL = "http://localhost:8545"
 
-@pytest.fixture()
+
+@pytest.fixture(scope="function")
 def fork_from_archive() -> AnvilFork:
-    return AnvilFork(fork_url="http://localhost:8543")
+    fork = AnvilFork(fork_url=ARCHIVE_NODE_URL)
+    yield fork
+
+    print("Cleaning up fork_from_archive")
+
+    # Clear the AllPools dictionary after the fixture is torn down,
+    # since the module is stateful and sequential tests will affect each other
+    degenbot.AllPools(fork.w3.eth.chain_id).pools.clear()
 
 
 @pytest.fixture()
@@ -217,10 +225,9 @@ def test_external_update(fork_from_archive: AnvilFork):
     ]
 
 
-def test_A_ramping():
+def test_A_ramping(fork_from_archive: AnvilFork):
     # A range:      5000 -> 2000
     # A time :      1653559305 -> 1654158027
-
     INITIAL_A = 5000
     FINAL_A = 2000
 
@@ -228,11 +235,8 @@ def test_A_ramping():
     FINAL_A_TIME = 1654158027
     # AVERAGE_BLOCK_TIME = 12
 
-    fork = AnvilFork(
-        fork_url="http://localhost:8543",
-        fork_block=14_900_000,
-    )
-    degenbot.set_web3(fork.w3)
+    fork_from_archive.reset(block_number=14_900_000)
+    degenbot.set_web3(fork_from_archive.w3)
 
     tripool = CurveStableswapPool(address=TRIPOOL_ADDRESS)
 
@@ -298,12 +302,12 @@ def test_base_registry_pools(fork_from_archive: AnvilFork):
 
 
 def test_single_pool(fork_from_archive: AnvilFork):
-    _POOL_ADDRESS = "0x618788357D0EBd8A37e763ADab3bc575D54c2C7d"
+    _POOL_ADDRESS = "0x87650D7bbfC3A9F10587d7778206671719d9910D"
 
     degenbot.set_web3(fork_from_archive.w3)
 
     _block_identifier = None
-    # _block_identifier = 18894200
+    _block_identifier = 18_917_256
     if _block_identifier:
         fork_from_archive.reset(block_number=_block_identifier)
 
