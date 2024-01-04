@@ -6,54 +6,54 @@ from hexbytes import HexBytes
 from typing import Optional
 
 
-# def test_router_additions() -> None:
-#     # Create a new chain
-#     UniswapTransaction.add_chain(chain_id=69)
+def test_router_additions() -> None:
+    # Create a new chain
+    UniswapTransaction.add_chain(chain_id=69)
 
-#     # Add a new Uniswap V2/V3 compatible router on chain ID 69
-#     UniswapTransaction.add_router(
-#         chain_id=69,
-#         router_address="0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
-#         router_dict={
-#             "name": "Shitcoins R Us",
-#             "factory_address": {
-#                 2: "0x02",
-#                 3: "0x03",
-#             },
-#         },
-#     )
+    # Add a new Uniswap V2/V3 compatible router on chain ID 69
+    UniswapTransaction.add_router(
+        chain_id=69,
+        router_address="0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
+        router_dict={
+            "name": "Shitcoins R Us",
+            "factory_address": {
+                2: "0x02",
+                3: "0x03",
+            },
+        },
+    )
 
-#     # Test validations for bad router dicts
-#     with pytest.raises(ValueError, match="not found in router_dict"):
-#         UniswapTransaction.add_router(
-#             chain_id=69,
-#             router_address="0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
-#             router_dict={
-#                 # "name": "Shitcoins R Us",
-#                 "factory_address": {
-#                     2: "0x02",
-#                     3: "0x03",
-#                 },
-#             },
-#         )
-#     with pytest.raises(ValueError, match="not found in router_dict"):
-#         UniswapTransaction.add_router(
-#             chain_id=69,
-#             router_address="0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
-#             router_dict={
-#                 "name": "Shitcoins R Us",
-#                 # "factory_address": {
-#                 #     2: "0x02",
-#                 #     3: "0x03",
-#                 # },
-#             },
-#         )
+    # Test validations for bad router dicts
+    with pytest.raises(ValueError, match="not found in router_dict"):
+        UniswapTransaction.add_router(
+            chain_id=69,
+            router_address="0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
+            router_dict={
+                # "name": "Shitcoins R Us",
+                "factory_address": {
+                    2: "0x02",
+                    3: "0x03",
+                },
+            },
+        )
+    with pytest.raises(ValueError, match="not found in router_dict"):
+        UniswapTransaction.add_router(
+            chain_id=69,
+            router_address="0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
+            router_dict={
+                "name": "Shitcoins R Us",
+                # "factory_address": {
+                #     2: "0x02",
+                #     3: "0x03",
+                # },
+            },
+        )
 
-#     # Add a new wrapped token
-#     UniswapTransaction.add_wrapped_token(
-#         chain_id=69,
-#         token_address="0x6969696969696969696969696969696969696969",
-#     )
+    # Add a new wrapped token
+    UniswapTransaction.add_wrapped_token(
+        chain_id=69,
+        token_address="0x6969696969696969696969696969696969696969",
+    )
 
 
 @pytest.mark.parametrize(
@@ -121,94 +121,94 @@ def test_v2_router_transactions(
         tx.simulate()
 
 
-# @pytest.mark.parametrize(
-#     "block_number, tx",
-#     [
-#         (
-#             17560200,
-#             UniswapTransaction(
-#                 chain_id=1,
-#                 tx_hash="0x44391e7f2ba292cb4ff42d33b3cff859c93a9ebf0e3ed7120d27b144d3787b4f",
-#                 tx_nonce=57,
-#                 tx_value=0,
-#                 tx_sender="0x42ED7246690EA1429e887CC246C460F35315a72b",
-#                 func_name="exactOutputSingle",
-#                 func_params={
-#                     "params": {
-#                         "tokenIn": "0x6E975115250B05C828ecb8edeDb091975Fc20a5d",
-#                         "tokenOut": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-#                         "fee": 500,
-#                         "recipient": "0x42ED7246690EA1429e887CC246C460F35315a72b",
-#                         "deadline": 1687744791,
-#                         "amountOut": 692000000000000000,
-#                         "amountInMaximum": 2695875027951196591488,
-#                         "sqrtPriceLimitX96": 0,
-#                     }
-#                 },
-#                 router_address="0xE592427A0AEce92De3Edee1F18E0157C05861564",
-#             ),
-#         ),
-#         (
-#             17471674,
-#             UniswapTransaction(
-#                 chain_id=1,
-#                 tx_hash="0x54534e3242c2b27ffe2eb32a3824a19c2060bd10cd82b6fe7aa02c43bd392f01",
-#                 tx_nonce=593,
-#                 tx_value=0,
-#                 tx_sender="0x2A373E63aa5e2aee150B9b311443674e3250ab3B",
-#                 func_name="multicall",
-#                 func_params={
-#                     "deadline": 1686667218,
-#                     "data": [
-#                         HexBytes(
-#                             "0x42712a67000000000000000000000000000000000000000000000000010a741a462780000000000000000000000000000000000000000000000000000004574b1913eede0000000000000000000000000000000000000000000000000000000000000080000000000000000000000000e73cb605b880565477640b55fd752282cd1878220000000000000000000000000000000000000000000000000000000000000002000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc200000000000000000000000034d31446a522252270b89b09016296ec4c98e23d"
-#                         ),
-#                     ],
-#                 },
-#                 router_address="0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
-#             ),
-#         ),
-#     ],
-# )
-# def test_v3_router_transactions(
-#     fork_from_archive: AnvilFork,
-#     block_number,
-#     tx,
-# ) -> None:
-#     fork_from_archive.reset(block_number=block_number)
-#     degenbot.set_web3(fork_from_archive.w3)
-#     tx.simulate()
+@pytest.mark.parametrize(
+    "block_number, tx",
+    [
+        (
+            17560200,
+            UniswapTransaction(
+                chain_id=1,
+                tx_hash="0x44391e7f2ba292cb4ff42d33b3cff859c93a9ebf0e3ed7120d27b144d3787b4f",
+                tx_nonce=57,
+                tx_value=0,
+                tx_sender="0x42ED7246690EA1429e887CC246C460F35315a72b",
+                func_name="exactOutputSingle",
+                func_params={
+                    "params": {
+                        "tokenIn": "0x6E975115250B05C828ecb8edeDb091975Fc20a5d",
+                        "tokenOut": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+                        "fee": 500,
+                        "recipient": "0x42ED7246690EA1429e887CC246C460F35315a72b",
+                        "deadline": 1687744791,
+                        "amountOut": 692000000000000000,
+                        "amountInMaximum": 2695875027951196591488,
+                        "sqrtPriceLimitX96": 0,
+                    }
+                },
+                router_address="0xE592427A0AEce92De3Edee1F18E0157C05861564",
+            ),
+        ),
+        (
+            17471674,
+            UniswapTransaction(
+                chain_id=1,
+                tx_hash="0x54534e3242c2b27ffe2eb32a3824a19c2060bd10cd82b6fe7aa02c43bd392f01",
+                tx_nonce=593,
+                tx_value=0,
+                tx_sender="0x2A373E63aa5e2aee150B9b311443674e3250ab3B",
+                func_name="multicall",
+                func_params={
+                    "deadline": 1686667218,
+                    "data": [
+                        HexBytes(
+                            "0x42712a67000000000000000000000000000000000000000000000000010a741a462780000000000000000000000000000000000000000000000000000004574b1913eede0000000000000000000000000000000000000000000000000000000000000080000000000000000000000000e73cb605b880565477640b55fd752282cd1878220000000000000000000000000000000000000000000000000000000000000002000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc200000000000000000000000034d31446a522252270b89b09016296ec4c98e23d"
+                        ),
+                    ],
+                },
+                router_address="0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
+            ),
+        ),
+    ],
+)
+def test_v3_router_transactions(
+    fork_from_archive: AnvilFork,
+    block_number,
+    tx,
+) -> None:
+    fork_from_archive.reset(block_number=block_number)
+    degenbot.set_web3(fork_from_archive.w3)
+    tx.simulate()
 
 
-# @pytest.mark.parametrize(
-#     "block_number, tx",
-#     [
-#         (
-#             17715663,
-#             UniswapTransaction(
-#                 chain_id=1,
-#                 tx_hash="0x18aa6d274ff5bfa1c2676e2e82460158a2104ae3452b62f1ca6c46d2f55efd67",
-#                 tx_nonce=46,
-#                 tx_value=0,
-#                 tx_sender="0x84b77488D7FB1Ae07Dc411a6a3EBd17ebc1faEBD",
-#                 func_name="execute",
-#                 func_params={
-#                     "commands": bytes.fromhex("0x0008"[2:]),
-#                     "inputs": [
-#                         HexBytes(
-#                             "0x000000000000000000000000e342253d5a0c1ac9da0203b0256e33c5cfe084f000000000000000000000000000000000000000000000152d02c7e14af6800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000423506424f91fd33084466f402d5d97f05f8e3b4af000bb8dac17f958d2ee523a2206206994597c13d831ec7000bb8c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2000000000000000000000000000000000000000000000000000000000000"
-#                         ),
-#                         HexBytes(
-#                             "0x00000000000000000000000084b77488d7fb1ae07dc411a6a3ebd17ebc1faebd80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005680118877fb7251d1b51400000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2000000000000000000000000d807f7e2818db8eda0d28b5be74866338eaedb86"
-#                         ),
-#                     ],
-#                 },
-#                 router_address="0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD",
-#             ),
-#         ),
-#     ],
-# )
-# def test_universal_router_transactions(fork_from_archive: AnvilFork, block_number, tx) -> None:
-#     fork_from_archive.reset(block_number=block_number)
-#     degenbot.set_web3(fork_from_archive.w3)
-#     tx.simulate()
+@pytest.mark.parametrize(
+    "block_number, tx",
+    [
+        (
+            17715663,
+            UniswapTransaction(
+                chain_id=1,
+                tx_hash="0x18aa6d274ff5bfa1c2676e2e82460158a2104ae3452b62f1ca6c46d2f55efd67",
+                tx_nonce=46,
+                tx_value=0,
+                tx_sender="0x84b77488D7FB1Ae07Dc411a6a3EBd17ebc1faEBD",
+                func_name="execute",
+                func_params={
+                    "commands": bytes.fromhex("0x0008"[2:]),
+                    "inputs": [
+                        HexBytes(
+                            "0x000000000000000000000000e342253d5a0c1ac9da0203b0256e33c5cfe084f000000000000000000000000000000000000000000000152d02c7e14af6800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000423506424f91fd33084466f402d5d97f05f8e3b4af000bb8dac17f958d2ee523a2206206994597c13d831ec7000bb8c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2000000000000000000000000000000000000000000000000000000000000"
+                        ),
+                        HexBytes(
+                            "0x00000000000000000000000084b77488d7fb1ae07dc411a6a3ebd17ebc1faebd80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005680118877fb7251d1b51400000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2000000000000000000000000d807f7e2818db8eda0d28b5be74866338eaedb86"
+                        ),
+                    ],
+                },
+                router_address="0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD",
+            ),
+        ),
+    ],
+)
+def test_universal_router_transactions(fork_from_archive: AnvilFork, block_number, tx) -> None:
+    fork_from_archive.reset(block_number=block_number)
+    degenbot.set_web3(fork_from_archive.w3)
+    tx.simulate()
