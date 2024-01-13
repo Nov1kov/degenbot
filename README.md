@@ -3,7 +3,16 @@ Degenbot is a set of Python classes that abstract many of the implementation det
 
 These classes serve as a building blocks for the lessons published by [BowTiedDevil](https://twitter.com/BowTiedDevil) on [Degen Code](https://www.degencode.com/).
 
-The classes originally relied on [Brownie](https://github.com/eth-brownie/), but have evolved to use [web3.py](https://github.com/ethereum/web3.py/) more generally following Brownie's transition to "maintenance mode". The degenbot classes still operate when loaded within a Brownie console or when connected to a Python script with a connected `chain` object.
+# Fork changes
+
+- fix set_web3 in every time. [PR](https://github.com/BowTiedDevil/degenbot/pull/16)
+- fix double recalculation arbitrage [this](https://github.com/Nov1kov/degenbot/commit/17862218abb33a1a73e08bcc2433c16c54c6b331) and [this](https://github.com/Nov1kov/degenbot/commit/203844652dc6f41f0e6c17128bed492f8bc14761)
+
+## How to install
+
+```shell
+pip install https://codeload.github.com/Nov1kov/degenbot/zip/refs/heads/main
+```
 
 ## Prerequisites
 Python version 3.10 or newer.
