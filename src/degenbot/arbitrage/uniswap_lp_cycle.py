@@ -635,7 +635,7 @@ class UniswapLpCycle(Subscriber, BaseArbitrage):
         """
         TBD
         """
-
+        self._pre_calculation_check(override_state)
         result = self._calculate(override_state=override_state)
 
         if override_state is None:
