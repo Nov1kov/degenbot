@@ -154,10 +154,10 @@ class UniswapLpCycle(Subscriber, ArbitrageHelper):
     def __getstate__(self) -> dict:
         # Remove objects that cannot be pickled and are unnecessary to perform
         # the calculation
-        dropped_attributes = (
+        dropped_attributes = {
             "_lock",
             "_subscribers",
-        )
+        }
 
         with self._lock:
             return {

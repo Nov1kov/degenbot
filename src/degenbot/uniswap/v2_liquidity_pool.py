@@ -277,11 +277,11 @@ class LiquidityPool(SubscriptionMixin, PoolHelper):
     def __getstate__(self) -> dict:
         # Remove objects that either cannot be pickled or are unnecessary to perform
         # the calculation
-        dropped_attributes = (
+        dropped_attributes = {
             "_state_lock",
             "_subscribers",
             "_pool_state_archive",
-        )
+        }
 
         with self._state_lock:
             return {

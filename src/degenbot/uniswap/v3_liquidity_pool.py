@@ -278,11 +278,11 @@ class V3LiquidityPool(SubscriptionMixin, PoolHelper):
     def __getstate__(self) -> dict:
         # Remove objects that cannot be pickled and are unnecessary to perform
         # the calculation
-        dropped_attributes = (
+        dropped_attributes = {
             "_state_lock",
             "_subscribers",
             "lens",
-        )
+        }
 
         with self._state_lock:
             return {
@@ -572,7 +572,7 @@ class V3LiquidityPool(SubscriptionMixin, PoolHelper):
 
             step.sqrtPriceStartX96 = state.sqrtPriceX96
 
-            while True:
+            while 1:
                 try:
                     (
                         step.tickNext,

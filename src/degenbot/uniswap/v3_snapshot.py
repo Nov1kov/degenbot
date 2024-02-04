@@ -118,7 +118,7 @@ class UniswapV3LiquiditySnapshot:
             event_abi = event._get_event_abi()
             start_block = self.newest_block + 1
 
-            while True:
+            while 1:
                 end_block = min(to_block, start_block + span - 1)
 
                 _, event_filter_params = construct_event_filter_params(
